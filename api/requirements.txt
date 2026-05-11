@@ -1,0 +1,7 @@
+flask
+numpy
+opencv-python-headless
+tensorflow-cpu
+scikit-learn
+huggingface_hub
+pillow
