@@ -1,0 +1,15 @@
+*.h5
+*.pkl
+*.pyc
+*.csv
+*.zip
+__pycache__
+.env
+.vercel
+app1.py
+app22.py
+app33.py
+app44.py
+123.py
+compare_models.py
+sd.py

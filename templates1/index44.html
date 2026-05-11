@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASL Sign Recognition</title>
+
+  <!-- Socket.IO -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+
+  <style>
+    /* ── Reset & custom properties ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep:   #090c12;
+      --bg-panel:  #0f1520;
+      --bg-card:   #141c2e;
+      --accent:    #00e5ff;
+      --accent2:   #7c3aed;
+      --green:     #10b981;
+      --red:       #ef4444;
+      --amber:     #f59e0b;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --border:    rgba(255,255,255,0.07);
+      --radius:    14px;
+      --font-ui:   'DM Sans', 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg-deep);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Background grid effect ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Header ── */
+    header {
+      position: relative; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 32px;
+      background: rgba(9,12,18,0.9);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+    }
+    .logo {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .logo-icon {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+    .logo h1 {
+      font-size: 18px; font-weight: 700; letter-spacing: -0.3px;
+      background: linear-gradient(90deg, var(--accent), #a78bfa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .logo span { font-size: 11px; color: var(--muted); display: block; margin-top: 1px; }
+
+    #conn-badge {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 12px; font-weight: 500;
+      padding: 5px 12px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+    }
+    #conn-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+    #conn-dot.connected    { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    #conn-dot.disconnected { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+
+    /* ── Main layout ── */
+    main {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      grid-template-rows: auto;
+      gap: 20px;
+      padding: 24px 32px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* ── Panel / card ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+    .card-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-title::before {
+      content: '';
+      display: inline-block;
+      width: 3px; height: 12px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    /* ── Left sidebar ── */
+    .sidebar {
+      display: flex; flex-direction: column; gap: 18px;
+    }
+
+    /* Model selector */
+    .model-select-wrap {
+      position: relative;
+    }
+    select {
+      width: 100%;
+      background: var(--bg-panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 11px 16px;
+      font-family: var(--font-ui);
+      font-size: 13px;
+      appearance: none;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    select:hover  { border-color: rgba(0,229,255,0.3); }
+    select:focus  { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,229,255,0.1); }
+    .select-arrow {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      pointer-events: none; color: var(--muted); font-size: 10px;
+    }
+
+    /* Model info badge */
+    #model-type-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-top: 10px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    #model-type-badge.visible { opacity: 1; }
+    #model-type-badge.crop     { background: rgba(16,185,129,0.15); color: #10b981; }
+    #model-type-badge.skeleton { background: rgba(124,58,237,0.15); color: #a78bfa; }
+    #model-type-badge.landmark { background: rgba(245,158,11,0.15); color: #fbbf24; }
+    #model-type-badge.raw      { background: rgba(0,229,255,0.10); color: var(--accent); }
+
+    /* Load button */
+    #load-btn {
+      width: 100%;
+      padding: 12px;
+      border: none; border-radius: 9px;
+      font-family: var(--font-ui);
+      font-size: 14px; font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(135deg, #0284c7, var(--accent2));
+      color: #fff;
+      letter-spacing: 0.3px;
+      transition: opacity 0.2s, transform 0.15s;
+      position: relative; overflow: hidden;
+    }
+    #load-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+    #load-btn:active:not(:disabled){ transform: translateY(0); }
+    #load-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    #load-btn .spinner {
+      display: none;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 8px;
+    }
+    #load-btn.loading .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* FPS & stream controls */
+    .control-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px;
+    }
+    .control-label { font-size: 12px; color: var(--muted); }
+    .fps-display {
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--accent); min-width: 40px; text-align: right;
+    }
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* Toggle switch */
+    .toggle-wrap { display: flex; align-items: center; gap: 10px; }
+    .toggle { position: relative; display: inline-block; width: 40px; height: 22px; }
+    .toggle input { display: none; }
+    .slider {
+      position: absolute; inset: 0;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 2px; top: 2px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: 0.3s;
+    }
+    .toggle input:checked + .slider { background: rgba(0,229,255,0.2); border-color: var(--accent); }
+    .toggle input:checked + .slider::before { transform: translateX(18px); background: var(--accent); }
+
+    /* ── Confidence bars ── */
+    .top3-wrap { display: flex; flex-direction: column; gap: 8px; }
+    .bar-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+    .bar-label {
+      font-family: var(--font-mono); font-weight: 700;
+      width: 30px; text-align: center;
+      color: var(--text);
+    }
+    .bar-track {
+      flex: 1; height: 6px;
+      background: var(--bg-panel);
+      border-radius: 3px; overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 3px;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      transition: width 0.2s ease;
+    }
+    .bar-pct { width: 38px; text-align: right; color: var(--muted); font-size: 11px; }
+
+    /* ── Right: Camera + results ── */
+    .camera-zone { display: flex; flex-direction: column; gap: 18px; }
+
+    /* Video container */
+    .video-wrap {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      aspect-ratio: 4/3;
+    }
+    #video   { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #overlay {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    /* Overlay info panels */
+    .cam-badge {
+      position: absolute;
+      background: rgba(9,12,18,0.8);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 13px;
+    }
+    #live-label {
+      top: 14px; left: 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #live-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red);
+      animation: pulse-live 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse-live {
+      0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+      50%      { opacity: 0.7; box-shadow: 0 0 0 5px rgba(239,68,68,0); }
+    }
+    #fps-cam { top: 14px; right: 14px; font-family: var(--font-mono); font-size: 12px; }
+
+    /* Big sign display */
+    #sign-big {
+      position: absolute; bottom: 14px; left: 14px;
+      font-family: var(--font-mono); font-size: 68px; font-weight: 700;
+      color: var(--accent);
+      text-shadow: 0 0 30px rgba(0,229,255,0.6);
+      line-height: 1;
+      transition: all 0.12s ease;
+      opacity: 0;
+    }
+    #sign-big.visible { opacity: 1; }
+
+    #conf-pill {
+      position: absolute; bottom: 20px; right: 14px;
+      font-size: 13px; font-weight: 600;
+      padding: 5px 12px; border-radius: 20px;
+      background: rgba(0,229,255,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(0,229,255,0.3);
+      font-family: var(--font-mono);
+      opacity: 0; transition: opacity 0.15s;
+    }
+    #conf-pill.visible { opacity: 1; }
+
+    /* Hand-not-detected banner */
+    #no-hand-banner {
+      position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+      font-size: 12px; color: var(--amber);
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 20px; padding: 4px 14px;
+      white-space: nowrap;
+      display: none;
+    }
+
+    /* ── Results row ── */
+    .results-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+    /* ── Text accumulator ── */
+    .text-area-wrap {
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    #accumulated-text {
+      min-height: 90px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 14px 16px;
+      font-family: var(--font-mono);
+      font-size: 22px; font-weight: 700;
+      letter-spacing: 4px;
+      color: var(--text);
+      word-break: break-all;
+      line-height: 1.5;
+    }
+    #accumulated-text:empty::before {
+      content: 'Your text will appear here…';
+      color: var(--muted);
+      font-size: 14px; letter-spacing: 1px; font-weight: 400;
+    }
+
+    .action-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    button.btn {
+      padding: 9px 18px; border-radius: 8px; border: none;
+      font-family: var(--font-ui); font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent2), #4f46e5);
+      color: #fff;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); }
+
+    .btn-danger {
+      background: rgba(239,68,68,0.12);
+      color: #f87171;
+      border: 1px solid rgba(239,68,68,0.25);
+    }
+    .btn-danger:hover { background: rgba(239,68,68,0.2); }
+
+    /* Toast notifications */
+    #toast-area {
+      position: fixed; bottom: 28px; right: 28px;
+      display: flex; flex-direction: column-reverse; gap: 10px;
+      z-index: 9999;
+    }
+    .toast {
+      padding: 11px 18px; border-radius: 10px;
+      font-size: 13px; font-weight: 500;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+      animation: slide-in 0.3s ease;
+      display: flex; align-items: center; gap: 8px;
+    }
+    @keyframes slide-in {
+      from { transform: translateX(40px); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+    .toast.success { border-color: rgba(16,185,129,0.4); color: #10b981; }
+    .toast.error   { border-color: rgba(239,68,68,0.4);  color: #f87171; }
+    .toast.info    { border-color: rgba(0,229,255,0.3);  color: var(--accent); }
+
+    /* Status messages */
+    #status-msg {
+      font-size: 12px; color: var(--muted); text-align: center;
+      min-height: 16px; transition: color 0.2s;
+    }
+    #status-msg.ok   { color: var(--green); }
+    #status-msg.err  { color: var(--red); }
+    #status-msg.warn { color: var(--amber); }
+
+    /* Stability indicator */
+    #stability-bar-wrap {
+      display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted);
+    }
+    #stability-track {
+      flex: 1; height: 4px; background: var(--bg-panel); border-radius: 2px; overflow: hidden;
+    }
+    #stability-fill {
+      height: 100%; border-radius: 2px;
+      background: linear-gradient(90deg, var(--amber), var(--green));
+      transition: width 0.1s linear;
+      width: 0%;
+    }
+
+    /* ── Zone toggle button ── */
+    #zone-toggle-btn {
+      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      padding: 5px 14px; border-radius: 20px; border: none;
+      font-family: var(--font-ui); font-size: 11px; font-weight: 700;
+      letter-spacing: 0.5px; text-transform: uppercase;
+      background: rgba(9,12,18,0.85); color: var(--accent);
+      border: 1px solid rgba(0,229,255,0.35);
+      cursor: pointer; z-index: 10;
+      backdrop-filter: blur(6px);
+      transition: background 0.2s;
+    }
+    #zone-toggle-btn:hover { background: rgba(0,229,255,0.1); }
+    #zone-toggle-btn.active { background: rgba(0,229,255,0.2); color: #fff; }
+
+    /* ── Responsive ── */
+    @media (max-width: 960px) {
+      main { grid-template-columns: 1fr; padding: 16px; }
+      .results-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🤟</div>
+    <div>
+      <h1>ASL Sign Recognition</h1>
+      <span>Real-time hand sign detection</span>
+    </div>
+  </div>
+  <div id="conn-badge">
+    <div id="conn-dot"></div>
+    <span id="conn-text">Connecting…</span>
+  </div>
+</header>
+
+<!-- ── Main ── -->
+<main>
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+
+    <!-- Model selector -->
+    <div class="card">
+      <div class="card-title">Model Configuration</div>
+
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:8px;">Select Model</label>
+      <div class="model-select-wrap">
+        <select id="model-select">
+          <option value="">— choose a model —</option>
+          {% for m in models %}
+          <option value="{{ m }}">{{ m }}</option>
+          {% endfor %}
+        </select>
+        <span class="select-arrow">▾</span>
+      </div>
+
+      <div id="model-type-badge">●&nbsp;<span id="mtype-text"></span></div>
+
+      <button id="load-btn" style="margin-top:14px;" disabled>
+        <span class="spinner"></span>
+        Load Model
+      </button>
+
+      <p id="status-msg" style="margin-top:10px;"></p>
+    </div>
+
+    <!-- Stream controls -->
+    <div class="card">
+      <div class="card-title">Stream Settings</div>
+
+      <div class="control-row" style="margin-bottom:14px;">
+        <span class="control-label">Target FPS</span>
+        <span class="fps-display" id="fps-val">10</span>
+        <input type="range" id="fps-slider" min="1" max="20" value="10" style="width:120px">
+      </div>
+
+      <div class="toggle-wrap" style="margin-bottom:14px;">
+        <label class="toggle">
+          <input type="checkbox" id="mirror-toggle" checked>
+          <span class="slider"></span>
+        </label>
+        <span class="control-label">Mirror video</span>
+      </div>
+
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="auto-add-toggle">
+          <span class="slider"></span>
+        </label>
+        <span class="control-label">Auto-add (stable 0.5 s)</span>
+      </div>
+    </div>
+
+    <!-- Live confidence bars -->
+    <div class="card">
+      <div class="card-title">Top Predictions</div>
+      <div class="top3-wrap" id="top3-wrap">
+        <div style="font-size:12px;color:var(--muted);">Load a model to see predictions</div>
+      </div>
+    </div>
+
+    <!-- Debug: what the model actually sees -->
+    <div class="card">
+      <div class="card-title">Model Input Preview</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
+        What the model receives after preprocessing
+      </div>
+      <canvas id="debug-canvas"
+        style="width:100%;border-radius:8px;border:1px solid var(--border);
+               background:#000;image-rendering:pixelated;">
+      </canvas>
+      <div id="debug-label" style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center;">
+        —
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+      <div class="card-title">Session Stats</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">FRAMES SENT</div>
+          <div id="stat-frames" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text);">0</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">SIGNS ADDED</div>
+          <div id="stat-signs" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--accent);">0</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">AVG CONFIDENCE</div>
+          <div id="stat-conf" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text);">—</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">LIVE FPS</div>
+          <div id="stat-fps" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text);">0</div>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Camera zone ── -->
+  <section class="camera-zone">
+
+    <!-- Video -->
+    <div class="video-wrap">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+
+      <button id="zone-toggle-btn">⬚  Zones OFF</button>
+
+      <div class="cam-badge" id="live-label">
+        <div id="live-dot"></div>
+        <span>LIVE</span>
+      </div>
+      <div class="cam-badge" id="fps-cam">0 fps</div>
+
+      <div id="sign-big"></div>
+      <div id="conf-pill"></div>
+      <div id="no-hand-banner">👋 No hand detected</div>
+    </div>
+
+    <!-- Results row -->
+    <div class="results-row">
+
+      <!-- Current sign -->
+      <div class="card">
+        <div class="card-title">Current Sign</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;">
+          <div id="current-sign-box"
+               style="width:72px;height:72px;border-radius:12px;
+                      background:var(--bg-panel);border:1px solid var(--border);
+                      display:flex;align-items:center;justify-content:center;
+                      font-family:var(--font-mono);font-size:42px;font-weight:700;
+                      color:var(--accent);">
+            ?
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">CONFIDENCE</div>
+            <div id="conf-big" style="font-family:var(--font-mono);font-size:28px;font-weight:700;">—</div>
+            <div id="stability-bar-wrap" style="margin-top:8px;">
+              <span>Stability</span>
+              <div id="stability-track">
+                <div id="stability-fill"></div>
+              </div>
+              <span id="stability-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="action-btns">
+          <button class="btn btn-primary" id="add-btn" disabled>＋ Add Sign</button>
+          <button class="btn btn-secondary" id="space-btn">Space</button>
+          <button class="btn btn-secondary" id="backspace-btn">⌫ Delete</button>
+        </div>
+      </div>
+
+      <!-- Accumulated text -->
+      <div class="card">
+        <div class="card-title">Accumulated Text</div>
+        <div class="text-area-wrap">
+          <div id="accumulated-text"></div>
+
+          <div id="word-predict-wrap" style="margin-top:8px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+              <span>💡</span><span>Word suggestions</span>
+              <span id="predict-prefix" style="color:var(--accent);font-family:var(--font-mono);font-weight:700;font-size:11px;"></span>
+            </div>
+            <div id="word-chips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:30px;">
+              <span style="font-size:11px;color:var(--muted);font-style:italic;">Sign letters to see suggestions…</span>
+            </div>
+          </div>
+
+          <div class="action-btns" style="margin-top:10px;">
+            <button class="btn btn-secondary" id="copy-btn">📋 Copy</button>
+            <button class="btn btn-danger" id="clear-btn">✕ Clear</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </section>
+</main>
+
+<!-- Toast area -->
+<div id="toast-area"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════
+   ASL Recognition Frontend
+   Camera-zone dwell interaction + word prediction
+   ══════════════════════════════════════════════════════════ */
+
+// ── State ──
+let socket        = null;
+let videoStream   = null;
+let sendInterval  = null;
+let modelLoaded   = false;
+let currentLabel  = null;
+let currentConf   = 0;
+let frameCount    = 0;
+let signCount     = 0;
+let confHistory   = [];
+let fpsTimestamps = [];
+// Zone is confidence+stability driven — no hand position tracking.
+// The ADD zone fills only when the SAME letter is held confidently for long enough.
+const CONF_THRESHOLD  = 78;   // min confidence % before fill can start
+const ZONE_HOLD_MS    = 1200; // ms to hold same confident pose to trigger ADD
+const CONSEC_REQUIRED = 5;    // consecutive same-label frames before fill starts
+const RESET_CONF      = 45;   // confidence below this = treat as "no sign"
+
+// Hand velocity detection — resets consecutive counter while hand is moving
+// so transition frames between signs never accumulate into a fill.
+let   prevHandCX      = -1;
+let   prevHandCY      = -1;
+let   handVelocity    = 0;    // EMA-smoothed speed (normalised units/frame)
+let   handMoving      = false;
+const VEL_SMOOTH      = 0.5;  // EMA alpha for velocity
+const MOVING_THRESH   = 0.018;// normalised distance/frame = hand is moving
+const STILL_THRESH    = 0.008;// below this = hand is still
+
+// Stability tracking (auto-add toggle)
+let stableLabel   = null;
+let stableStart   = 0;
+let stabilitySent = false;
+const STABLE_MS   = 500;
+
+// Zone system
+let zonesEnabled  = false;
+const COOLDOWN_MS = 2000;  // ms zone is locked after firing
+
+// Zone positions — TOP CORNERS + BOTTOM CENTRE
+// Signing space is roughly the centre of the frame, so corners are safe targets.
+//
+//  [✓ ADD]  .......signing space.......  [⌫ DEL]
+//                  [␣ SPACE]  (bottom)
+//
+// Single ADD zone drawn in bottom-right corner as a visual target.
+// It fills based on CONFIDENCE + HOLD DURATION, not hand position.
+// DEL and SPACE work by signing those letters — no separate zones needed.
+const ZONES = [
+  {
+    id   : 'add',
+    label: '✓  ADD',
+    nx1  : 0.68, ny1: 0.70, nx2: 1.00, ny2: 1.00,  // bottom-right corner
+    color: [0, 229, 255],
+    action: () => addCurrentSign(),
+  },
+];
+
+// Zone state machine
+// idle → confirming (waiting for CONSEC_REQUIRED frames) → filling → cooldown → idle
+const zoneState = {
+  phase         : 'idle',
+  fillStart     : 0,       // timestamp when filling began
+  lastLabel     : null,    // label being tracked right now
+  consecCount   : 0,       // consecutive frames of same label above threshold
+  lastAddedLabel: null,    // last letter that was successfully added
+  seenBreak     : true,    // true once a "neutral" pose is seen after adding
+                           // prevents same letter re-triggering without a break
+};
+
+// Canvas for frame capture
+const captureCanvas = document.createElement('canvas');
+const captureCtx    = captureCanvas.getContext('2d');
+
+// Overlay canvas — used for zone drawing
+const overlayCanvas = document.getElementById('overlay');
+const overlayCtx    = overlayCanvas.getContext('2d');
+
+// ── DOM refs ──
+const video          = document.getElementById('video');
+const connDot        = document.getElementById('conn-dot');
+const connText       = document.getElementById('conn-text');
+const modelSelect    = document.getElementById('model-select');
+const loadBtn        = document.getElementById('load-btn');
+const statusMsg      = document.getElementById('status-msg');
+const fpsSlider      = document.getElementById('fps-slider');
+const fpsVal         = document.getElementById('fps-val');
+const mirrorToggle   = document.getElementById('mirror-toggle');
+const autoAddToggle  = document.getElementById('auto-add-toggle');
+const signBig        = document.getElementById('sign-big');
+const confPill       = document.getElementById('conf-pill');
+const noHandBanner   = document.getElementById('no-hand-banner');
+const currentSignBox = document.getElementById('current-sign-box');
+const confBig        = document.getElementById('conf-big');
+const stabilityFill  = document.getElementById('stability-fill');
+const stabilityPct   = document.getElementById('stability-pct');
+const addBtn         = document.getElementById('add-btn');
+const spaceBtn       = document.getElementById('space-btn');
+const backspaceBtn   = document.getElementById('backspace-btn');
+const accText        = document.getElementById('accumulated-text');
+const wordChips      = document.getElementById('word-chips');
+const predictPrefix  = document.getElementById('predict-prefix');
+const copyBtn        = document.getElementById('copy-btn');
+const clearBtn       = document.getElementById('clear-btn');
+const top3Wrap       = document.getElementById('top3-wrap');
+const fpsCam         = document.getElementById('fps-cam');
+const statFrames     = document.getElementById('stat-frames');
+const statSigns      = document.getElementById('stat-signs');
+const statConf       = document.getElementById('stat-conf');
+const statFps        = document.getElementById('stat-fps');
+const mtypeBadge     = document.getElementById('model-type-badge');
+const mtypeText      = document.getElementById('mtype-text');
+const zoneToggleBtn  = document.getElementById('zone-toggle-btn');
+
+// ══════════════════════════════════════════════════════════
+//  ZONE DRAWING
+// ══════════════════════════════════════════════════════════
+
+function drawZones() {
+  const W = overlayCanvas.width;
+  const H = overlayCanvas.height;
+  overlayCtx.clearRect(0, 0, W, H);
+
+  if (!zonesEnabled) return;
+
+  const zone       = ZONES[0];   // only one zone
+  const x1 = zone.nx1 * W, y1 = zone.ny1 * H;
+  const x2 = zone.nx2 * W, y2 = zone.ny2 * H;
+  const zw = x2 - x1, zh = y2 - y1;
+  const [r, g, b]  = zone.color;
+  const phase      = zoneState.phase;
+
+  // Fill progress (0–1)
+  const pct = (phase === 'filling')
+    ? Math.min(1, (Date.now() - zoneState.fillStart) / ZONE_HOLD_MS)
+    : (phase === 'cooldown') ? 1 : 0;
+
+  // Confirming progress — how close to CONSEC_REQUIRED frames (shown as a thin pulse)
+  const confirmPct = Math.min(1, zoneState.consecCount / CONSEC_REQUIRED);
+  const isConfirmed = zoneState.consecCount >= CONSEC_REQUIRED;
+
+  // ── Background ──
+  overlayCtx.fillStyle = `rgba(${r},${g},${b},${0.06 + pct * 0.20})`;
+  overlayCtx.beginPath();
+  overlayCtx.roundRect(x1, y1, zw, zh, 12);
+  overlayCtx.fill();
+
+  // ── Bottom-up fill bar ──
+  if (pct > 0) {
+    const fillH = zh * pct;
+    overlayCtx.save();
+    overlayCtx.beginPath();
+    overlayCtx.roundRect(x1, y1, zw, zh, 12);
+    overlayCtx.clip();
+    const grad = overlayCtx.createLinearGradient(0, y2, 0, y2 - fillH);
+    grad.addColorStop(0, `rgba(${r},${g},${b},0.55)`);
+    grad.addColorStop(1, `rgba(${r},${g},${b},0.20)`);
+    overlayCtx.fillStyle = grad;
+    overlayCtx.fillRect(x1, y2 - fillH, zw, fillH);
+    overlayCtx.restore();
+  }
+
+  // ── Border — brighter while filling ──
+  overlayCtx.strokeStyle = `rgba(${r},${g},${b},${phase !== 'idle' ? 0.95 : 0.40})`;
+  overlayCtx.lineWidth   = phase !== 'idle' ? 2.5 : 1.5;
+  overlayCtx.beginPath();
+  overlayCtx.roundRect(x1, y1, zw, zh, 12);
+  overlayCtx.stroke();
+
+  // ── Corner marks ──
+  const cl = 12;
+  overlayCtx.strokeStyle = `rgba(${r},${g},${b},0.85)`;
+  overlayCtx.lineWidth = 2.5;
+  [ [x1,y1,1,1],[x2,y1,-1,1],[x1,y2,1,-1],[x2,y2,-1,-1] ].forEach(([cx,cy,sx,sy]) => {
+    overlayCtx.beginPath(); overlayCtx.moveTo(cx+sx*4,cy); overlayCtx.lineTo(cx+sx*(4+cl),cy); overlayCtx.stroke();
+    overlayCtx.beginPath(); overlayCtx.moveTo(cx,cy+sy*4); overlayCtx.lineTo(cx,cy+sy*(4+cl)); overlayCtx.stroke();
+  });
+
+  // ── Label ──
+  const labelY = y1 + zh * 0.38;
+  overlayCtx.font         = `bold ${phase==='filling'?15:13}px "JetBrains Mono",monospace`;
+  overlayCtx.fillStyle    = `rgba(${r},${g},${b},${phase!=='idle'?1.0:0.70})`;
+  overlayCtx.textAlign    = 'center';
+  overlayCtx.textBaseline = 'middle';
+  overlayCtx.fillText('✓  ADD', x1 + zw/2, labelY);
+
+  // ── Current letter preview inside zone ──
+  if (phase === 'filling' && zoneState.lastLabel) {
+    overlayCtx.font      = `bold ${Math.round(zh*0.30)}px "JetBrains Mono",monospace`;
+    overlayCtx.fillStyle = `rgba(255,255,255,${0.4 + pct * 0.5})`;
+    overlayCtx.fillText(zoneState.lastLabel, x1 + zw/2, y1 + zh * 0.65);
+  }
+
+  // ── Progress % ──
+  if (phase === 'filling' && pct > 0.08) {
+    overlayCtx.font      = 'bold 11px "JetBrains Mono",monospace';
+    overlayCtx.fillStyle = 'rgba(255,255,255,0.90)';
+    overlayCtx.fillText(Math.round(pct*100)+'%', x1+zw/2, y2-10);
+  } else if (phase === 'cooldown') {
+    overlayCtx.font      = 'bold 12px "JetBrains Mono",monospace';
+    overlayCtx.fillStyle = 'rgba(255,255,255,0.75)';
+    overlayCtx.fillText('added!', x1+zw/2, y2-10);
+  } else if (phase === 'idle') {
+    overlayCtx.font      = '10px "JetBrains Mono",monospace';
+    if (handMoving) {
+      overlayCtx.fillStyle = `rgba(${r},${g},${b},0.40)`;
+      overlayCtx.fillText('wait…', x1+zw/2, y2-10);
+    } else if (confirmPct > 0 && confirmPct < 1) {
+      overlayCtx.fillStyle = `rgba(${r},${g},${b},0.75)`;
+      overlayCtx.fillText('confirming…', x1+zw/2, y2-10);
+      overlayCtx.fillStyle = `rgba(${r},${g},${b},0.35)`;
+      overlayCtx.fillRect(x1, y2-3, zw * confirmPct, 3);
+    } else {
+      overlayCtx.fillStyle = `rgba(${r},${g},${b},0.45)`;
+      overlayCtx.fillText('hold confident sign', x1+zw/2, y2-10);
+    }
+  }
+}
+
+// Continuous redraw loop (keeps dwell animations smooth)
+let lastDrawTime = 0;
+function drawLoop(ts) {
+  if (ts - lastDrawTime > 16) {   // ~60 fps cap
+    drawZones();
+    lastDrawTime = ts;
+  }
+  requestAnimationFrame(drawLoop);
+}
+requestAnimationFrame(drawLoop);
+
+// ══════════════════════════════════════════════════════════
+//  ZONE DWELL LOGIC
+// ══════════════════════════════════════════════════════════
+
+// Called every prediction frame.
+// Three-stage pipeline:
+//   1. Consecutive-frame filter: same label must appear CONSEC_REQUIRED frames in a row
+//      before fill starts → transition flashes (1–3 frames) are completely ignored.
+//   2. Hold timer: must hold that confirmed label for ZONE_HOLD_MS continuously.
+//   3. Repeat guard: after adding letter X, the zone stays blocked for that letter
+//      until the model clearly sees something different (confidence drops below
+//      RESET_CONF, or a different letter appears) — prevents the same pose from
+//      immediately re-triggering as soon as cooldown ends.
+function updateZoneFromSign(label, confidence) {
+  if (!zonesEnabled) {
+    zoneState.phase = 'idle';
+    zoneState.consecCount = 0;
+    return;
+  }
+
+  // ── Motion gate ──
+  // While the hand is moving (transition between signs) wipe the consecutive
+  // counter so no mid-transition frame can ever start or advance a fill.
+  if (handMoving) {
+    zoneState.consecCount = 0;
+    zoneState.lastLabel   = null;
+    if (zoneState.phase === 'filling') zoneState.phase = 'idle';
+    return;  // nothing to do until hand settles
+  }
+
+  const now = Date.now();
+
+  const SPECIAL     = ['del', 'space'];
+  const isActionable = label && (
+    (label.length === 1 && /[A-Z]/.test(label)) ||
+    SPECIAL.includes(label)
+  );
+  const confident = isActionable && confidence >= CONF_THRESHOLD;
+
+  // ── Repeat guard ──
+  // After firing, require seeing something different before same label can fire again.
+  // For del/space we skip the repeat guard — those are always allowed to repeat.
+  if (!zoneState.seenBreak && !SPECIAL.includes(zoneState.lastAddedLabel)) {
+    const isDifferent = label !== zoneState.lastAddedLabel && confidence >= 50;
+    const isLow       = confidence < RESET_CONF;
+    if (isDifferent || isLow) zoneState.seenBreak = true;
+  } else {
+    zoneState.seenBreak = true;  // del/space never block themselves
+  }
+
+  // ── Consecutive-frame counter ──
+  if (confident && label === zoneState.lastLabel) {
+    zoneState.consecCount = Math.min(zoneState.consecCount + 1, CONSEC_REQUIRED + 5);
+  } else {
+    zoneState.consecCount = confident ? 1 : 0;
+    zoneState.lastLabel   = confident ? label : null;
+    if (zoneState.phase === 'filling') zoneState.phase = 'idle';
+  }
+
+  const confirmed = zoneState.consecCount >= CONSEC_REQUIRED;
+  const blocked   = !zoneState.seenBreak && label === zoneState.lastAddedLabel;
+
+  switch (zoneState.phase) {
+    case 'idle':
+      if (confident && confirmed && !blocked) {
+        zoneState.phase     = 'filling';
+        zoneState.fillStart = now;
+      }
+      break;
+
+    case 'filling':
+      if (!confident || label !== zoneState.lastLabel) {
+        zoneState.phase = 'idle';
+      } else if (now - zoneState.fillStart >= ZONE_HOLD_MS) {
+        zoneState.lastAddedLabel = label;
+        zoneState.seenBreak      = SPECIAL.includes(label); // del/space: no break needed
+        zoneState.consecCount    = 0;
+        zoneState.phase          = 'cooldown';
+        ZONES[0].action();   // calls addCurrentSign() which handles del/space/letters
+        const toastLabel = label === 'del' ? '⌫ Deleted' : label === 'space' ? '␣ Space' : '✓ ' + label;
+        toast(toastLabel, 'success');
+        setTimeout(() => { zoneState.phase = 'idle'; }, COOLDOWN_MS);
+      }
+      break;
+
+    case 'cooldown':
+      break;
+  }
+}
+
+// ── Zone toggle button ──
+zoneToggleBtn.addEventListener('click', () => {
+  zonesEnabled = !zonesEnabled;
+  zoneToggleBtn.textContent = zonesEnabled ? '⬚  Zones ON' : '⬚  Zones OFF';
+  zoneToggleBtn.classList.toggle('active', zonesEnabled);
+  if (!zonesEnabled) {
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    zoneState.phase = 'idle';
+  }
+  toast(zonesEnabled ? 'Zones enabled — hover hand into a box' : 'Zones disabled', 'info');
+});
+
+// ══════════════════════════════════════════════════════════
+//  WORD PREDICTION
+// ══════════════════════════════════════════════════════════
+
+const WORD_LIST = ("the be to of and a in that have it for not on with he as you do at this his by from they we say her she or an will my one all would there their what so up out if about who get which go me when make can like time no just him know take people into year your good some could them see other than then now look only come its over think also back after use two how our work first well way even new want because any these give day most us hello help here hand sign language spell word letter read write show learn yes no thank please sorry good bad eat drink go come stop start open close left right up down in out big small fast slow hot cold new old try again done yes no maybe okay great nice love want need have take give use make get come go see look find know say tell ask show help thank you please sorry again here there now later today tomorrow yesterday after before above below inside outside front back left right hello goodbye morning night day week month year name home work school family friend hello help here how why when where what who which yes no maybe okay fine great nice good bad happy sad angry tired hungry thirsty hot cold warm cool fast slow big small tall short young old new again please thank sorry").split(" ").filter((v,i,a)=>a.indexOf(v)===i);
+
+function getWordSuggestions(prefix, max=6) {
+  if (!prefix) return [];
+  const p = prefix.toUpperCase();
+  return WORD_LIST
+    .filter(w => w.toUpperCase().startsWith(p))
+    .sort((a,b) => a.length - b.length)
+    .slice(0, max);
+}
+
+function getCurrentPrefix() {
+  const text  = (accText.textContent || '').trimEnd();
+  const parts = text.split(' ');
+  return parts[parts.length-1].replace(/[^A-Za-z]/g,'');
+}
+
+function updateWordPredictions() {
+  const prefix = getCurrentPrefix();
+  if (!prefix) {
+    wordChips.innerHTML = '<span style="font-size:11px;color:var(--muted);font-style:italic;">Sign letters to see suggestions…</span>';
+    predictPrefix.textContent = '';
+    return;
+  }
+  const suggestions = getWordSuggestions(prefix);
+  predictPrefix.textContent = prefix + '…';
+  if (!suggestions.length) {
+    wordChips.innerHTML = '<span style="font-size:11px;color:var(--muted);font-style:italic;">No matches</span>';
+    return;
+  }
+  wordChips.innerHTML = '';
+  suggestions.forEach((word, i) => {
+    const chip = document.createElement('button');
+    chip.style.cssText = `
+      padding:5px 13px; border-radius:20px; font-size:13px; font-weight:600;
+      background:${i===0?'rgba(0,229,255,0.12)':'rgba(124,58,237,0.15)'};
+      border:1px solid ${i===0?'rgba(0,229,255,0.3)':'rgba(124,58,237,0.3)'};
+      color:${i===0?'var(--accent)':'#a78bfa'}; cursor:pointer;
+      transition:all 0.15s; letter-spacing:0.5px; font-family:var(--font-ui);
+    `;
+    chip.textContent = word;
+    chip.addEventListener('mouseenter', () => { chip.style.transform='translateY(-2px)'; chip.style.opacity='0.85'; });
+    chip.addEventListener('mouseleave', () => { chip.style.transform=''; chip.style.opacity='1'; });
+    chip.addEventListener('click', () => {
+      const text    = accText.textContent || '';
+      const lastSpc = text.lastIndexOf(' ');
+      accText.textContent = (lastSpc >= 0 ? text.slice(0, lastSpc+1) : '') + word;
+      flashAdd();
+      updateWordPredictions();
+      toast(`Word: ${word}`, 'success');
+    });
+    wordChips.appendChild(chip);
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  CORE APP
+// ══════════════════════════════════════════════════════════
+
+function updateMirror() {
+  video.style.transform = mirrorToggle.checked ? 'scaleX(-1)' : '';
+  // Overlay canvas is NOT mirrored — the ADD zone is always drawn
+  // in the bottom-right visual corner regardless of mirror setting.
+  // Confidence-based triggering has no left/right concept.
+}
+mirrorToggle.addEventListener('change', updateMirror);
+updateMirror();
+
+fpsSlider.addEventListener('input', () => {
+  fpsVal.textContent = fpsSlider.value;
+  restartSending();
+});
+
+const typeColors = { crop:'crop', skeleton:'skeleton', landmark:'landmark', raw:'raw' };
+function showTypeBadge(type) {
+  mtypeText.textContent = type.toUpperCase() + ' input';
+  mtypeBadge.className  = 'visible ' + (typeColors[type] || 'raw');
+}
+
+modelSelect.addEventListener('change', () => { loadBtn.disabled = !modelSelect.value; });
+
+function initSocket() {
+  socket = io({ transports: ['websocket'] });
+
+  socket.on('connect', () => {
+    connDot.className    = 'connected';
+    connText.textContent = 'Connected';
+    toast('Server connected', 'success');
+  });
+  socket.on('disconnect', () => {
+    connDot.className    = 'disconnected';
+    connText.textContent = 'Disconnected';
+    toast('Server disconnected', 'error');
+    stopSending();
+  });
+  socket.on('status', (data) => {
+    if (data.model_loaded) {
+      modelLoaded = true;
+      setStatus(`Model active: ${data.model_name}`, 'ok');
+      startSending();
+    }
+  });
+  socket.on('prediction', (data) => {
+    if (data.error) { setStatus(data.error, 'err'); return; }
+    handlePrediction(data);
+  });
+}
+
+async function startCamera() {
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video: { width:{ideal:640}, height:{ideal:480}, facingMode:'user' },
+      audio: false
+    });
+    video.srcObject = videoStream;
+    video.onloadedmetadata = () => {
+      overlayCanvas.width  = video.videoWidth;
+      overlayCanvas.height = video.videoHeight;
+      captureCanvas.width  = video.videoWidth;
+      captureCanvas.height = video.videoHeight;
+    };
+  } catch(e) { toast('Camera access denied: '+e.message, 'error'); }
+}
+
+function startSending() {
+  stopSending();
+  sendInterval = setInterval(sendFrame, 1000/parseInt(fpsSlider.value,10));
+}
+function stopSending() {
+  if (sendInterval) { clearInterval(sendInterval); sendInterval = null; }
+}
+function restartSending() { if (modelLoaded) startSending(); }
+
+function sendFrame() {
+  if (!socket || !socket.connected || !modelLoaded || !video.videoWidth) return;
+  captureCtx.drawImage(video, 0, 0);
+  const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.85);
+  socket.emit('frame', { image: dataUrl });
+
+  // Debug canvas every 12 frames
+  if (frameCount % 12 === 0 && modelLoaded) {
+    fetch('/api/debug_frame', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({image: dataUrl})
+    }).then(r=>r.json()).then(d=>{
+      const dc  = document.getElementById('debug-canvas');
+      const lbl = document.getElementById('debug-label');
+      if (d && d.image && dc) {
+        const img = new Image();
+        img.onload = () => { dc.width=img.naturalWidth; dc.height=img.naturalHeight; dc.getContext('2d').drawImage(img,0,0); };
+        img.src = d.image;
+        if (lbl) lbl.textContent = currentLabel ? `Model sees → "${currentLabel}"` : '—';
+      } else if (lbl) { lbl.textContent='No hand detected'; }
+    }).catch(()=>{});
+  }
+
+  frameCount++;
+  statFrames.textContent = frameCount;
+  const now = Date.now();
+  fpsTimestamps.push(now);
+  fpsTimestamps = fpsTimestamps.filter(t => now-t < 1000);
+  const liveFps = fpsTimestamps.length;
+  fpsCam.textContent  = liveFps+' fps';
+  statFps.textContent = liveFps;
+}
+
+function handlePrediction(data) {
+  if (!data.hand_detected || !data.label) {
+    noHandBanner.style.display = 'block';
+    signBig.className          = '';
+    confPill.className         = '';
+    currentSignBox.textContent = '?';
+    confBig.textContent        = '—';
+    updateStability(null);
+    zoneState.phase = 'idle';
+    zoneState.consecCount = 0;
+    handVelocity = 0; handMoving = false;
+    prevHandCX = -1; prevHandCY = -1;
+    return;
+  }
+
+  noHandBanner.style.display = 'none';
+  const { label, confidence, all_top3 } = data;
+
+  // ── Velocity detection ──
+  // Use hand_cx/cy from the backend to measure how fast the hand is moving.
+  // When velocity > MOVING_THRESH the consecutive counter resets instantly,
+  // so no transition frame can ever accumulate into a zone fill.
+  const rawCX = typeof data.hand_cx === 'number' ? data.hand_cx : -1;
+  const rawCY = typeof data.hand_cy === 'number' ? data.hand_cy : -1;
+
+  if (rawCX >= 0 && prevHandCX >= 0) {
+    const dx  = rawCX - prevHandCX;
+    const dy  = rawCY - prevHandCY;
+    const spd = Math.sqrt(dx * dx + dy * dy);
+    handVelocity = handVelocity * (1 - VEL_SMOOTH) + spd * VEL_SMOOTH;
+  } else {
+    handVelocity = 0;
+  }
+  prevHandCX = rawCX;
+  prevHandCY = rawCY;
+
+  // Hysteresis: go moving when above MOVING_THRESH, only go still below STILL_THRESH
+  if (handVelocity > MOVING_THRESH)     handMoving = true;
+  else if (handVelocity < STILL_THRESH) handMoving = false;
+
+  updateZoneFromSign(label, confidence);
+
+  currentLabel = label;
+  currentConf  = confidence;
+
+  signBig.textContent  = label;
+  signBig.className    = 'visible';
+  confPill.textContent = confidence+'%';
+  confPill.className   = 'visible';
+
+  currentSignBox.textContent = label;
+  confBig.textContent        = confidence+'%';
+  confBig.style.color = confidence>80?'var(--green)':confidence>50?'var(--amber)':'var(--text)';
+
+  if (all_top3) renderTop3(all_top3);
+
+  confHistory.push(confidence);
+  if (confHistory.length>100) confHistory.shift();
+  statConf.textContent = (confHistory.reduce((a,b)=>a+b,0)/confHistory.length).toFixed(0)+'%';
+
+  updateStability(label);
+  addBtn.disabled = false;
+}
+
+function updateStability(label) {
+  if (label === null) {
+    stableLabel=null; stableStart=0; stabilitySent=false;
+    setStabilityBar(0); return;
+  }
+  if (label !== stableLabel) {
+    stableLabel=label; stableStart=Date.now(); stabilitySent=false;
+  }
+  const pct = Math.min(100, ((Date.now()-stableStart)/STABLE_MS)*100);
+  setStabilityBar(pct);
+  if (pct>=100 && !stabilitySent && autoAddToggle.checked) {
+    stabilitySent=true; addCurrentSign();
+  }
+}
+
+function setStabilityBar(pct) {
+  stabilityFill.style.width = pct+'%';
+  stabilityPct.textContent  = Math.round(pct)+'%';
+}
+
+function renderTop3(items) {
+  top3Wrap.innerHTML = '';
+  items.forEach(({label,prob}) => {
+    top3Wrap.insertAdjacentHTML('beforeend',`
+      <div class="bar-row">
+        <span class="bar-label">${label}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${prob}%"></div></div>
+        <span class="bar-pct">${prob}%</span>
+      </div>`);
+  });
+}
+
+function addCurrentSign() {
+  if (!currentLabel) return;
+  if (currentLabel==='nothing') return;
+  if (currentLabel==='del') {
+    const t=accText.textContent;
+    if (t.length>0) { accText.textContent=t.slice(0,-1); updateWordPredictions(); }
+    return;
+  }
+  if (currentLabel==='space') {
+    accText.textContent+=' '; updateWordPredictions(); return;
+  }
+  accText.textContent += currentLabel;
+  signCount++;
+  statSigns.textContent = signCount;
+  flashAdd();
+  updateWordPredictions();
+}
+
+function flashAdd() {
+  accText.style.borderColor='var(--accent)';
+  accText.style.boxShadow='0 0 12px rgba(0,229,255,0.2)';
+  setTimeout(()=>{ accText.style.borderColor=''; accText.style.boxShadow=''; },300);
+}
+
+addBtn.addEventListener('click', addCurrentSign);
+spaceBtn.addEventListener('click', ()=>{ accText.textContent+=' '; updateWordPredictions(); });
+backspaceBtn.addEventListener('click', ()=>{
+  const t=accText.textContent;
+  if (t.length>0) { accText.textContent=t.slice(0,-1); updateWordPredictions(); }
+});
+clearBtn.addEventListener('click', ()=>{
+  accText.textContent='';
+  wordChips.innerHTML='<span style="font-size:11px;color:var(--muted);font-style:italic;">Sign letters to see suggestions…</span>';
+  predictPrefix.textContent='';
+  toast('Text cleared','info');
+});
+copyBtn.addEventListener('click', ()=>{
+  const text=accText.textContent;
+  if (!text) { toast('Nothing to copy','info'); return; }
+  navigator.clipboard.writeText(text)
+    .then(()=>toast('Copied!','success'))
+    .catch(()=>{ const el=document.createElement('textarea'); el.value=text; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el); toast('Copied!','success'); });
+});
+
+loadBtn.addEventListener('click', async ()=>{
+  const modelName=modelSelect.value;
+  if (!modelName) return;
+  loadBtn.disabled=true;
+  loadBtn.classList.add('loading');
+  setStatus('Loading model…','warn');
+  try {
+    const res=await fetch('/api/load_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model_name:modelName})});
+    const data=await res.json();
+    if (data.success) {
+      modelLoaded=true;
+      setStatus(`✓ Loaded: ${modelName}`,'ok');
+      showTypeBadge(data.model_type);
+      toast(`Model loaded: ${data.model_type} pipeline`,'success');
+      startSending();
+    } else { setStatus('Error: '+data.error,'err'); toast(data.error,'error'); }
+  } catch(e) { setStatus('Network error: '+e.message,'err'); toast(e.message,'error'); }
+  finally { loadBtn.disabled=false; loadBtn.classList.remove('loading'); }
+});
+
+function setStatus(msg,type='') { statusMsg.textContent=msg; statusMsg.className=type; }
+
+function toast(msg,type='info') {
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  const icon={success:'✓',error:'✕',info:'ℹ'}[type]||'ℹ';
+  el.innerHTML=`<span>${icon}</span><span>${msg}</span>`;
+  document.getElementById('toast-area').appendChild(el);
+  setTimeout(()=>el.remove(),3200);
+}
+
+document.addEventListener('keydown',(e)=>{
+  if (e.code==='Space'&&e.target===document.body) { e.preventDefault(); addCurrentSign(); }
+  if (e.code==='Backspace'&&e.target===document.body) {
+    e.preventDefault();
+    const t=accText.textContent;
+    if (t.length>0) { accText.textContent=t.slice(0,-1); updateWordPredictions(); }
+  }
+});
+
+(async function init() {
+  await startCamera();
+  initSocket();
+  fetch('/api/models').then(r=>r.json()).then(models=>{
+    Array.from(modelSelect.options).forEach(opt=>{
+      if (!opt.value) return;
+      const m=models.find(x=>x.name===opt.value);
+      if (m&&!m.exists) { opt.text+=' (file not found)'; opt.style.color='#ef4444'; }
+    });
+  }).catch(()=>{});
+})();
+</script></html>

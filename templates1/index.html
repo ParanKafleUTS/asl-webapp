@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>ASL Sign Recognition</title>
+
+<!-- MediaPipe Hands (runs entirely in the browser) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:    #090c12;
+  --panel: #0f1520;
+  --card:  #141c2e;
+  --line:  rgba(255,255,255,0.07);
+  --cyan:  #00e5ff;
+  --pur:   #7c3aed;
+  --green: #10b981;
+  --red:   #ef4444;
+  --amber: #f59e0b;
+  --text:  #e2e8f0;
+  --muted: #64748b;
+  --r:     12px;
+  --mono:  'JetBrains Mono','Fira Code',monospace;
+  --ui:    'DM Sans','Segoe UI',sans-serif;
+}
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+body{font-family:var(--ui);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:
+  linear-gradient(rgba(0,229,255,.03) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(0,229,255,.03) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0}
+
+/* Header */
+header{position:relative;z-index:10;display:flex;align-items:center;
+  justify-content:space-between;padding:16px 28px;
+  background:rgba(9,12,18,.92);border-bottom:1px solid var(--line);
+  backdrop-filter:blur(10px)}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:36px;height:36px;border-radius:9px;
+  background:linear-gradient(135deg,var(--cyan),var(--pur));
+  display:flex;align-items:center;justify-content:center;font-size:18px}
+.logo h1{font-size:17px;font-weight:700;
+  background:linear-gradient(90deg,var(--cyan),#a78bfa);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo p{font-size:11px;color:var(--muted);margin-top:1px}
+
+#status-pill{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;
+  padding:5px 14px;border-radius:20px;background:rgba(255,255,255,.05);
+  border:1px solid var(--line)}
+#status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:.3s}
+#status-dot.ready{background:var(--green);box-shadow:0 0 7px var(--green)}
+#status-dot.loading{background:var(--amber);animation:blink 1s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* Layout */
+main{position:relative;z-index:1;display:grid;
+  grid-template-columns:340px 1fr;gap:18px;
+  padding:20px 28px;max-width:1360px;margin:0 auto}
+
+/* Card */
+.card{background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r);padding:20px}
+.card-title{font-size:10px;font-weight:700;letter-spacing:1.2px;
+  text-transform:uppercase;color:var(--muted);margin-bottom:14px;
+  display:flex;align-items:center;gap:7px}
+.card-title::before{content:'';display:inline-block;width:3px;height:11px;
+  border-radius:2px;background:var(--cyan)}
+
+.sidebar{display:flex;flex-direction:column;gap:16px}
+
+/* Select */
+.sel-wrap{position:relative}
+select{width:100%;background:var(--panel);color:var(--text);
+  border:1px solid var(--line);border-radius:8px;padding:10px 14px;
+  font-family:var(--ui);font-size:13px;appearance:none;cursor:pointer;outline:none;transition:.2s}
+select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,229,255,.1)}
+.sel-arr{position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  pointer-events:none;color:var(--muted);font-size:10px}
+
+/* Load btn */
+#load-btn{width:100%;padding:11px;border:none;border-radius:8px;
+  font-family:var(--ui);font-size:13px;font-weight:700;cursor:pointer;
+  background:linear-gradient(135deg,#0284c7,var(--pur));color:#fff;
+  transition:.2s;position:relative;overflow:hidden;margin-top:12px}
+#load-btn:hover:not(:disabled){opacity:.88;transform:translateY(-1px)}
+#load-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
+.spin{display:none;width:13px;height:13px;
+  border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
+  border-radius:50%;animation:spin .7s linear infinite;margin-right:7px}
+#load-btn.busy .spin{display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Toggle */
+.tog-row{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
+.tog{position:relative;display:inline-block;width:38px;height:21px}
+.tog input{display:none}
+.sld{position:absolute;inset:0;background:var(--panel);border:1px solid var(--line);
+  border-radius:11px;cursor:pointer;transition:.3s}
+.sld::before{content:'';position:absolute;width:15px;height:15px;
+  left:2px;top:2px;border-radius:50%;background:var(--muted);transition:.3s}
+.tog input:checked+.sld{background:rgba(0,229,255,.18);border-color:var(--cyan)}
+.tog input:checked+.sld::before{transform:translateX(17px);background:var(--cyan)}
+
+/* Top-3 bars */
+.bar-row{display:flex;align-items:center;gap:9px;font-size:12px;margin-bottom:7px}
+.bar-lbl{font-family:var(--mono);font-weight:700;width:28px;text-align:center}
+.bar-track{flex:1;height:5px;background:var(--panel);border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;
+  background:linear-gradient(90deg,var(--pur),var(--cyan));transition:width .15s}
+.bar-pct{width:36px;text-align:right;color:var(--muted);font-size:11px}
+
+/* Camera */
+.cam-zone{display:flex;flex-direction:column;gap:16px}
+.cam-wrap{position:relative;background:#000;border-radius:var(--r);
+  overflow:hidden;border:1px solid var(--line);aspect-ratio:4/3}
+#video{width:100%;height:100%;object-fit:cover;display:block}
+#overlay{position:absolute;inset:0;width:100%;height:100%}
+
+.cam-badge{position:absolute;background:rgba(9,12,18,.82);
+  backdrop-filter:blur(8px);border:1px solid var(--line);
+  border-radius:7px;padding:5px 11px;font-size:12px}
+#live-badge{top:12px;left:12px;display:flex;align-items:center;gap:7px}
+#live-dot{width:7px;height:7px;border-radius:50%;background:var(--red);
+  animation:live-pulse 1.5s ease-in-out infinite}
+@keyframes live-pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}
+  50%{box-shadow:0 0 0 5px rgba(239,68,68,0)}}
+#fps-badge{top:12px;right:12px;font-family:var(--mono);font-size:11px}
+
+#sign-big{position:absolute;bottom:12px;left:14px;
+  font-family:var(--mono);font-size:72px;font-weight:700;color:var(--cyan);
+  text-shadow:0 0 30px rgba(0,229,255,.6);opacity:0;transition:.12s;line-height:1}
+#sign-big.on{opacity:1}
+#conf-pill{position:absolute;bottom:18px;right:14px;
+  font-size:12px;font-weight:600;padding:4px 11px;border-radius:20px;
+  background:rgba(0,229,255,.12);color:var(--cyan);
+  border:1px solid rgba(0,229,255,.28);font-family:var(--mono);
+  opacity:0;transition:.15s}
+#conf-pill.on{opacity:1}
+#no-hand{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
+  font-size:11px;color:var(--amber);background:rgba(245,158,11,.1);
+  border:1px solid rgba(245,158,11,.28);border-radius:20px;
+  padding:4px 13px;white-space:nowrap;display:none}
+
+/* ADD zone (drawn on canvas) */
+
+/* Results row */
+.results-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+/* Current sign box */
+#sign-box{width:80px;height:80px;border-radius:10px;
+  background:var(--panel);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:44px;font-weight:700;color:var(--cyan);
+  transition:.15s;flex-shrink:0}
+
+/* Stability bar */
+#stab-track{flex:1;height:4px;background:var(--panel);border-radius:2px;overflow:hidden}
+#stab-fill{height:100%;border-radius:2px;
+  background:linear-gradient(90deg,var(--amber),var(--green));transition:width .1s linear}
+
+/* Text accumulator */
+#acc-text{min-height:80px;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:12px 14px;font-family:var(--mono);
+  font-size:22px;font-weight:700;letter-spacing:4px;word-break:break-all;line-height:1.5;
+  transition:.3s}
+#acc-text:empty::before{content:'Your text will appear here…';
+  color:var(--muted);font-size:13px;letter-spacing:1px;font-weight:400}
+
+/* Word chips */
+.chips{display:flex;flex-wrap:wrap;gap:6px;min-height:28px;margin-top:8px}
+.chip{padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;
+  transition:.15s;border:1px solid;font-family:var(--ui)}
+.chip.best{background:rgba(0,229,255,.1);border-color:rgba(0,229,255,.3);color:var(--cyan)}
+.chip.alt{background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.28);color:#a78bfa}
+.chip:hover{transform:translateY(-2px);opacity:.85}
+
+/* Buttons */
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.btn{padding:8px 16px;border-radius:7px;border:none;font-family:var(--ui);
+  font-size:12px;font-weight:700;cursor:pointer;transition:.15s}
+.btn-p{background:linear-gradient(135deg,var(--pur),#4f46e5);color:#fff}
+.btn-p:hover{opacity:.88;transform:translateY(-1px)}
+.btn-p:disabled{opacity:.3;cursor:not-allowed;transform:none}
+.btn-s{background:rgba(255,255,255,.06);color:var(--text);border:1px solid var(--line)}
+.btn-s:hover{background:rgba(255,255,255,.1)}
+.btn-d{background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.22)}
+.btn-d:hover{background:rgba(239,68,68,.18)}
+
+/* Stats */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat-val{font-family:var(--mono);font-size:20px;font-weight:700;margin-top:3px}
+
+/* Toast */
+#toasts{position:fixed;bottom:24px;right:24px;
+  display:flex;flex-direction:column-reverse;gap:8px;z-index:9999}
+.toast{padding:10px 16px;border-radius:9px;font-size:12px;font-weight:500;
+  background:var(--card);border:1px solid var(--line);
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+  display:flex;align-items:center;gap:7px;animation:slide-in .25s ease}
+@keyframes slide-in{from{transform:translateX(40px);opacity:0}to{transform:translateX(0);opacity:1}}
+.toast.ok{border-color:rgba(16,185,129,.4);color:var(--green)}
+.toast.err{border-color:rgba(239,68,68,.4);color:#f87171}
+.toast.info{border-color:rgba(0,229,255,.3);color:var(--cyan)}
+
+/* Status msg */
+#load-msg{font-size:11px;color:var(--muted);text-align:center;margin-top:8px;min-height:14px}
+#load-msg.ok{color:var(--green)}#load-msg.err{color:var(--red)}#load-msg.warn{color:var(--amber)}
+
+@media(max-width:920px){main{grid-template-columns:1fr}.results-row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🤟</div>
+    <div><h1>ASL Sign Recognition</h1><p>Browser-side MediaPipe · Real-time</p></div>
+  </div>
+  <div id="status-pill">
+    <div id="status-dot"></div>
+    <span id="status-txt">Starting…</span>
+  </div>
+</header>
+
+<main>
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+
+  <div class="card">
+    <div class="card-title">Model</div>
+    <div class="sel-wrap">
+      <select id="model-sel">
+        <option value="">— choose a model —</option>
+        {% for m in models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+      </select>
+      <span class="sel-arr">▾</span>
+    </div>
+    <button id="load-btn" disabled><span class="spin"></span>Load Model</button>
+    <p id="load-msg"></p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Settings</div>
+    <div class="tog-row" style="margin-bottom:12px">
+      <label class="tog"><input type="checkbox" id="mirror-tog" checked><span class="sld"></span></label>
+      <span>Mirror video</span>
+    </div>
+    <div class="tog-row" style="margin-bottom:12px">
+      <label class="tog"><input type="checkbox" id="zone-tog"><span class="sld"></span></label>
+      <span>ADD zone (hold confident sign)</span>
+    </div>
+    <div class="tog-row">
+      <label class="tog"><input type="checkbox" id="auto-tog" checked><span class="sld"></span></label>
+      <span>Auto-add (stable 0.8 s)</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Top Predictions</div>
+    <div id="top3"><div style="font-size:11px;color:var(--muted)">Load a model to see predictions</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Session</div>
+    <div class="stat-grid">
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px">SIGNS ADDED</div>
+        <div class="stat-val" id="s-signs" style="color:var(--cyan)">0</div></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px">AVG CONF</div>
+        <div class="stat-val" id="s-conf">—</div></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px">LIVE FPS</div>
+        <div class="stat-val" id="s-fps">0</div></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px">HAND</div>
+        <div class="stat-val" id="s-hand" style="font-size:14px">—</div></div>
+    </div>
+  </div>
+
+</aside>
+
+<!-- ── Camera ── -->
+<section class="cam-zone">
+  <div class="cam-wrap">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="overlay"></canvas>
+    <div class="cam-badge" id="live-badge"><div id="live-dot"></div><span>LIVE</span></div>
+    <div class="cam-badge" id="fps-badge">0 fps</div>
+    <div id="sign-big"></div>
+    <div id="conf-pill"></div>
+    <div id="no-hand">👋 Show your hand</div>
+  </div>
+
+  <div class="results-row">
+    <!-- Current sign -->
+    <div class="card">
+      <div class="card-title">Current Sign</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+        <div id="sign-box">?</div>
+        <div style="flex:1">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:5px">CONFIDENCE</div>
+          <div id="conf-big" style="font-family:var(--mono);font-size:26px;font-weight:700">—</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:7px;font-size:11px;color:var(--muted)">
+            <span>Stability</span>
+            <div id="stab-track"><div id="stab-fill" style="width:0%"></div></div>
+            <span id="stab-pct">0%</span>
+          </div>
+        </div>
+      </div>
+      <div class="btns">
+        <button class="btn btn-p" id="add-btn" disabled>＋ Add</button>
+        <button class="btn btn-s" id="spc-btn">Space</button>
+        <button class="btn btn-s" id="del-btn">⌫</button>
+      </div>
+    </div>
+
+    <!-- Text -->
+    <div class="card">
+      <div class="card-title">Text</div>
+      <div id="acc-text"></div>
+      <div class="chips" id="chips"><span style="font-size:11px;color:var(--muted);font-style:italic">Sign letters to see suggestions…</span></div>
+      <div id="predict-pfx" style="font-size:10px;color:var(--cyan);font-family:var(--mono);margin-top:4px"></div>
+      <div class="btns">
+        <button class="btn btn-s" id="copy-btn">📋 Copy</button>
+        <button class="btn btn-d" id="clear-btn">✕ Clear</button>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<div id="toasts"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  ASL Recognition — MediaPipe JS + REST backend
+// ═══════════════════════════════════════════════════════════════
+
+// ── State ──────────────────────────────────────────────────────
+let modelLoaded  = false;
+let modelType    = '';
+let currentLabel = null;
+let currentConf  = 0;
+let handPresent  = false;
+let signCount    = 0;
+let confHistory  = [];
+let fpsTs        = [];
+
+// Stability (auto-add)
+let stableLabel = null, stableStart = 0, stableSent = false;
+const STABLE_MS = 1250;
+
+// Zone state
+const ZONE = { nx1:.68, ny1:.70, nx2:1, ny2:1 };
+let zoneEnabled    = false;
+let zonePhase      = 'idle';   // idle | confirming | filling | cooldown
+let zoneConsec     = 0;
+let zoneFillStart  = 0;
+let zoneLastLabel  = null;
+let zoneLastAdded  = null;
+let zoneSeenBreak  = true;
+const ZONE_CONSEC  = 5;
+const ZONE_HOLD_MS = 1200;
+const ZONE_COOL_MS = 2000;
+const CONF_MIN     = 78;
+
+// Velocity (transition detection)
+let prevLMX = null, prevLMY = null;
+let velocity = 0, handMoving = false;
+const VEL_ALPHA = 0.45, VEL_MOVE = 0.018, VEL_STILL = 0.007;
+
+// Pending request gate — only one /api/predict in flight at a time
+let predicting = false;
+
+// ── DOM ────────────────────────────────────────────────────────
+const video      = document.getElementById('video');
+const overlay    = document.getElementById('overlay');
+const ctx        = overlay.getContext('2d');
+const signBig    = document.getElementById('sign-big');
+const confPill   = document.getElementById('conf-pill');
+const noHand     = document.getElementById('no-hand');
+const signBox    = document.getElementById('sign-box');
+const confBig    = document.getElementById('conf-big');
+const stabFill   = document.getElementById('stab-fill');
+const stabPct    = document.getElementById('stab-pct');
+const addBtn     = document.getElementById('add-btn');
+const accText    = document.getElementById('acc-text');
+const chips      = document.getElementById('chips');
+const pfx        = document.getElementById('predict-pfx');
+const top3El     = document.getElementById('top3');
+const fpsBadge   = document.getElementById('fps-badge');
+const statusDot  = document.getElementById('status-dot');
+const statusTxt  = document.getElementById('status-txt');
+const mirrorTog  = document.getElementById('mirror-tog');
+const zoneTog    = document.getElementById('zone-tog');
+const autoTog    = document.getElementById('auto-tog');
+const modelSel   = document.getElementById('model-sel');
+const loadBtn    = document.getElementById('load-btn');
+const loadMsg    = document.getElementById('load-msg');
+const sFps       = document.getElementById('s-fps');
+const sSigns     = document.getElementById('s-signs');
+const sConf      = document.getElementById('s-conf');
+const sHand      = document.getElementById('s-hand');
+
+// ── MediaPipe Hands (browser-side) ────────────────────────────
+const hands = new Hands({ locateFile: f =>
+  `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+
+hands.setOptions({
+  maxNumHands           : 1,
+  modelComplexity       : 1,
+  minDetectionConfidence: 0.6,
+  minTrackingConfidence : 0.55,
+});
+
+hands.onResults(onHandResults);
+
+const camera = new Camera(video, {
+  onFrame: async () => { await hands.send({ image: video }); },
+  width: 640, height: 480,
+});
+camera.start().then(() => setStatus('ready', 'Camera ready — load a model'));
+
+// ── Mirror ──────────────────────────────────────────────────────
+function applyMirror() {
+  video.style.transform = mirrorTog.checked ? 'scaleX(-1)' : '';
+}
+mirrorTog.addEventListener('change', applyMirror);
+applyMirror();
+
+// ── MediaPipe result handler ───────────────────────────────────
+function onHandResults(results) {
+  // Resize overlay to match video
+  overlay.width  = video.videoWidth  || 640;
+  overlay.height = video.videoHeight || 480;
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  // FPS
+  const now = Date.now();
+  fpsTs.push(now);
+  fpsTs = fpsTs.filter(t => now - t < 1000);
+  const fps = fpsTs.length;
+  fpsBadge.textContent = fps + ' fps';
+  sFps.textContent     = fps;
+
+  if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
+    // No hand
+    handPresent = false;
+    noHand.style.display = 'block';
+    signBig.className = '';
+    confPill.className = '';
+    updateStability(null);
+    resetZone();
+    velocity = 0; handMoving = false; prevLMX = null; prevLMY = null;
+    sHand.textContent = '—';
+    drawZone();
+    return;
+  }
+
+  handPresent = true;
+  noHand.style.display = 'none';
+  sHand.textContent = '✓';
+
+  const lm = results.multiHandLandmarks[0]; // 21 landmarks
+
+  // ── Draw skeleton on overlay ──────────────────────────────────
+  drawSkeleton(lm);
+
+  // ── Velocity (wrist movement) ─────────────────────────────────
+  const wx = lm[0].x, wy = lm[0].y;
+  if (prevLMX !== null) {
+    const spd = Math.sqrt((wx-prevLMX)**2 + (wy-prevLMY)**2);
+    velocity   = velocity * (1-VEL_ALPHA) + spd * VEL_ALPHA;
+  }
+  prevLMX = wx; prevLMY = wy;
+  if      (velocity > VEL_MOVE)  handMoving = true;
+  else if (velocity < VEL_STILL) handMoving = false;
+
+  // ── Build model input and call backend ───────────────────────
+  if (!modelLoaded || predicting) { drawZone(); return; }
+
+  if (modelType === 'landmark') {
+    // Send raw coordinates — exactly as trained
+    const coords = [];
+    for (const p of lm) coords.push(p.x, p.y, p.z);
+    callPredict({ type: 'landmark', landmarks: coords });
+
+  } else if (modelType === 'skeleton') {
+    // Draw skeleton on an offscreen canvas, send as JPEG
+    callPredict({ type: 'image', image: buildSkeletonImage(lm) });
+
+  } else {
+    // crop / raw / fast: crop hand from video, send as JPEG
+    callPredict({ type: 'image', image: cropHand(lm) });
+  }
+
+  drawZone();
+}
+
+// ── Backend prediction ────────────────────────────────────────
+function callPredict(body) {
+  predicting = true;
+  fetch('/api/predict', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify(body),
+  })
+  .then(r => r.json())
+  .then(data => {
+    predicting = false;
+    if (data.error) { setStatus('ready', data.error); return; }
+    handlePrediction(data);
+  })
+  .catch(() => { predicting = false; });
+}
+
+// ── Handle prediction result ──────────────────────────────────
+function handlePrediction(data) {
+  const { label, confidence, top3 } = data;
+  currentLabel = label;
+  currentConf  = confidence;
+
+  // Big overlay
+  signBig.textContent  = label;
+  signBig.className    = 'on';
+  confPill.textContent = confidence + '%';
+  confPill.className   = 'on';
+
+  // Side panel
+  signBox.textContent  = label;
+  confBig.textContent  = confidence + '%';
+  confBig.style.color  = confidence > 80 ? 'var(--green)' : confidence > 50 ? 'var(--amber)' : 'var(--text)';
+
+  // Bars
+  if (top3) renderTop3(top3);
+
+  // Stats
+  confHistory.push(confidence);
+  if (confHistory.length > 80) confHistory.shift();
+  sConf.textContent = Math.round(confHistory.reduce((a,b)=>a+b,0)/confHistory.length) + '%';
+
+  // Stability
+  updateStability(label);
+  addBtn.disabled = false;
+
+  // Zone
+  updateZone(label, confidence);
+}
+
+// ── Skeleton drawing (for overlay) ───────────────────────────
+const CONN = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17],
+];
+const FINGER_COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#c77dff'];
+
+function drawSkeleton(lm) {
+  const W = overlay.width, H = overlay.height;
+  // If mirrored, flip X for drawing
+  const fx = x => mirrorTog.checked ? (1-x)*W : x*W;
+  const fy = y => y * H;
+
+  ctx.lineWidth = 2;
+  CONN.forEach(([a,b]) => {
+    const finger = Math.floor(a/4);
+    ctx.strokeStyle = FINGER_COLORS[Math.min(finger, 4)] + 'cc';
+    ctx.beginPath();
+    ctx.moveTo(fx(lm[a].x), fy(lm[a].y));
+    ctx.lineTo(fx(lm[b].x), fy(lm[b].y));
+    ctx.stroke();
+  });
+  lm.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(fx(p.x), fy(p.y), i===0?5:3, 0, 2*Math.PI);
+    ctx.fillStyle = i===0 ? '#ffffff' : '#00e5ff';
+    ctx.fill();
+  });
+}
+
+// ── Build skeleton image for skeleton models ──────────────────
+function buildSkeletonImage(lm) {
+  const sz = 224;
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = offCanvas.height = sz;
+  const c = offCanvas.getContext('2d');
+  c.fillStyle = '#ffffff';
+  c.fillRect(0, 0, sz, sz);
+
+  // Black bones, red joints (matches training exactly)
+  c.strokeStyle = '#000000';
+  c.lineWidth   = 2;
+  CONN.forEach(([a,b]) => {
+    c.beginPath();
+    c.moveTo(lm[a].x*sz, lm[a].y*sz);
+    c.lineTo(lm[b].x*sz, lm[b].y*sz);
+    c.stroke();
+  });
+  c.fillStyle = '#ff0000';
+  lm.forEach(p => {
+    c.beginPath();
+    c.arc(p.x*sz, p.y*sz, 3, 0, 2*Math.PI);
+    c.fill();
+  });
+  return offCanvas.toDataURL('image/jpeg', 0.85);
+}
+
+// ── Crop hand region from video ───────────────────────────────
+function cropHand(lm) {
+  const W = video.videoWidth, H = video.videoHeight;
+  const xs = lm.map(p => p.x), ys = lm.map(p => p.y);
+  const margin = 0.15;
+  const x1 = Math.max(0, (Math.min(...xs) - margin) * W) | 0;
+  const y1 = Math.max(0, (Math.min(...ys) - margin) * H) | 0;
+  const x2 = Math.min(W, (Math.max(...xs) + margin) * W) | 0;
+  const y2 = Math.min(H, (Math.max(...ys) + margin) * H) | 0;
+  const cw = x2 - x1, ch = y2 - y1;
+  if (cw <= 0 || ch <= 0) return null;
+
+  const offC = document.createElement('canvas');
+  offC.width = offC.height = 224;
+  const c = offC.getContext('2d');
+  c.drawImage(video, x1, y1, cw, ch, 0, 0, 224, 224);
+  return offC.toDataURL('image/jpeg', 0.85);
+}
+
+// ── Zone drawing ──────────────────────────────────────────────
+function drawZone() {
+  if (!zoneEnabled) return;
+  const W = overlay.width, H = overlay.height;
+  const x1 = ZONE.nx1*W, y1 = ZONE.ny1*H;
+  const x2 = ZONE.nx2*W, y2 = ZONE.ny2*H;
+  const zw = x2-x1, zh = y2-y1;
+
+  const pct = zonePhase === 'filling'
+    ? Math.min(1, (Date.now()-zoneFillStart)/ZONE_HOLD_MS)
+    : zonePhase === 'cooldown' ? 1 : 0;
+  const confirmPct = Math.min(1, zoneConsec/ZONE_CONSEC);
+
+  // Background
+  ctx.fillStyle = `rgba(0,229,255,${0.06 + pct*0.18})`;
+  ctx.beginPath(); ctx.roundRect(x1,y1,zw,zh,10); ctx.fill();
+
+  // Fill bar
+  if (pct > 0) {
+    const fh = zh * pct;
+    ctx.save(); ctx.beginPath(); ctx.roundRect(x1,y1,zw,zh,10); ctx.clip();
+    const g = ctx.createLinearGradient(0,y2,0,y2-fh);
+    g.addColorStop(0,'rgba(0,229,255,.55)'); g.addColorStop(1,'rgba(0,229,255,.18)');
+    ctx.fillStyle = g; ctx.fillRect(x1,y2-fh,zw,fh);
+    ctx.restore();
+  }
+
+  // Confirm strip at bottom
+  if (confirmPct > 0 && confirmPct < 1 && zonePhase === 'idle') {
+    ctx.fillStyle = 'rgba(0,229,255,.30)';
+    ctx.fillRect(x1, y2-3, zw*confirmPct, 3);
+  }
+
+  // Border
+  ctx.strokeStyle = `rgba(0,229,255,${zonePhase!=='idle'?0.90:0.38})`;
+  ctx.lineWidth   = zonePhase !== 'idle' ? 2.5 : 1.5;
+  ctx.beginPath(); ctx.roundRect(x1,y1,zw,zh,10); ctx.stroke();
+
+  // Corner marks
+  const cl = 11;
+  ctx.strokeStyle = 'rgba(0,229,255,.80)'; ctx.lineWidth = 2;
+  [[x1,y1,1,1],[x2,y1,-1,1],[x1,y2,1,-1],[x2,y2,-1,-1]].forEach(([cx,cy,sx,sy])=>{
+    ctx.beginPath(); ctx.moveTo(cx+sx*3,cy); ctx.lineTo(cx+sx*(3+cl),cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx,cy+sy*3); ctx.lineTo(cx,cy+sy*(3+cl)); ctx.stroke();
+  });
+
+  // Label & hint
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font      = `bold ${zonePhase==='filling'?14:12}px var(--mono)`;
+  ctx.fillStyle = `rgba(0,229,255,${zonePhase!=='idle'?1:.70})`;
+  ctx.fillText('✓  ADD', x1+zw/2, y1+zh*0.38);
+
+  if (zonePhase==='filling' && zoneLastLabel) {
+    ctx.font      = `bold ${Math.round(zh*0.28)}px var(--mono)`;
+    ctx.fillStyle = `rgba(255,255,255,${0.40+pct*0.50})`;
+    ctx.fillText(zoneLastLabel, x1+zw/2, y1+zh*0.65);
+  }
+
+  ctx.font = '10px var(--mono)';
+  if (zonePhase==='cooldown') {
+    ctx.fillStyle='rgba(255,255,255,.70)'; ctx.fillText('added!',x1+zw/2,y2-9);
+  } else if (zonePhase==='filling' && pct>.08) {
+    ctx.fillStyle='rgba(255,255,255,.90)'; ctx.fillText(Math.round(pct*100)+'%',x1+zw/2,y2-9);
+  } else if (handMoving) {
+    ctx.fillStyle='rgba(0,229,255,.40)'; ctx.fillText('wait…',x1+zw/2,y2-9);
+  } else if (confirmPct>0 && confirmPct<1) {
+    ctx.fillStyle='rgba(0,229,255,.65)'; ctx.fillText('confirming…',x1+zw/2,y2-9);
+  } else {
+    ctx.fillStyle='rgba(0,229,255,.40)'; ctx.fillText('hold confident sign',x1+zw/2,y2-9);
+  }
+}
+
+// ── Zone logic ────────────────────────────────────────────────
+function resetZone() {
+  zonePhase = 'idle'; zoneConsec = 0; zoneLastLabel = null;
+}
+
+function updateZone(label, confidence) {
+  if (!zoneEnabled) { resetZone(); return; }
+  if (handMoving)   { zoneConsec = 0; zoneLastLabel = null;
+                      if (zonePhase==='filling') zonePhase='idle'; return; }
+
+  const SPECIAL = ['del','space'];
+  const ok = label && ((label.length===1 && /[A-Z]/.test(label)) || SPECIAL.includes(label));
+  const confident = ok && confidence >= CONF_MIN;
+
+  // Repeat guard
+  if (!zoneSeenBreak && !SPECIAL.includes(zoneLastAdded)) {
+    if (label !== zoneLastAdded && confidence >= 48) zoneSeenBreak = true;
+    else if (confidence < 40) zoneSeenBreak = true;
+  } else { zoneSeenBreak = true; }
+
+  // Consecutive counter
+  if (confident && label === zoneLastLabel) {
+    zoneConsec = Math.min(zoneConsec+1, ZONE_CONSEC+4);
+  } else {
+    zoneConsec = confident ? 1 : 0;
+    zoneLastLabel = confident ? label : null;
+    if (zonePhase==='filling') zonePhase='idle';
+  }
+
+  const confirmed = zoneConsec >= ZONE_CONSEC;
+  const blocked   = !zoneSeenBreak && label === zoneLastAdded;
+
+  if (zonePhase==='idle' && confident && confirmed && !blocked) {
+    zonePhase='filling'; zoneFillStart=Date.now();
+  } else if (zonePhase==='filling') {
+    if (!confident || label!==zoneLastLabel) {
+      zonePhase='idle';
+    } else if (Date.now()-zoneFillStart >= ZONE_HOLD_MS) {
+      zoneLastAdded = label;
+      zoneSeenBreak = SPECIAL.includes(label);
+      zoneConsec    = 0;
+      zonePhase     = 'cooldown';
+      addCurrentSign();
+      const t = label==='del'?'⌫ Deleted':label==='space'?'␣ Space':'✓ '+label;
+      toast(t,'ok');
+      setTimeout(()=>{ zonePhase='idle'; }, ZONE_COOL_MS);
+    }
+  }
+}
+
+// ── Stability (auto-add) ──────────────────────────────────────
+function updateStability(label) {
+  if (!label || handMoving) {
+    // No hand, or hand is mid-transition — reset so the bar only fills on a still pose
+    if (handMoving) {
+      stableLabel = null; stableStart = 0; stableSent = false;
+      stabFill.style.width = '0%'; stabPct.textContent = '0%';
+    } else {
+      stableLabel=null; stableStart=0; stableSent=false;
+      stabFill.style.width='0%'; stabPct.textContent='0%';
+    }
+    return;
+  }
+  if (label !== stableLabel) {
+    stableLabel = label; stableStart = Date.now(); stableSent = false;
+  }
+  const pct = Math.min(100, (Date.now() - stableStart) / STABLE_MS * 100);
+  stabFill.style.width   = pct + '%';
+  stabPct.textContent    = Math.round(pct) + '%';
+  if (pct >= 100 && !stableSent && autoTog.checked) {
+    stableSent = true;
+    addCurrentSign();
+  }
+}
+
+// ── Text actions ──────────────────────────────────────────────
+function addCurrentSign() {
+  if (!currentLabel) return;
+  if (currentLabel==='nothing') return;
+  if (currentLabel==='del')   { const t=accText.textContent; if(t.length>0){accText.textContent=t.slice(0,-1);updateChips();} return; }
+  if (currentLabel==='space') { accText.textContent+=' '; updateChips(); return; }
+  accText.textContent += currentLabel;
+  signCount++; sSigns.textContent=signCount;
+  flash(); updateChips();
+}
+
+function flash() {
+  accText.style.borderColor='var(--cyan)';
+  accText.style.boxShadow='0 0 12px rgba(0,229,255,.2)';
+  setTimeout(()=>{ accText.style.borderColor=''; accText.style.boxShadow=''; },300);
+}
+
+addBtn.addEventListener('click', addCurrentSign);
+document.getElementById('spc-btn').addEventListener('click',()=>{ accText.textContent+=' '; updateChips(); });
+document.getElementById('del-btn').addEventListener('click',()=>{ const t=accText.textContent; if(t.length>0){accText.textContent=t.slice(0,-1);updateChips();} });
+document.getElementById('clear-btn').addEventListener('click',()=>{ accText.textContent=''; updateChips(); toast('Cleared','info'); });
+document.getElementById('copy-btn').addEventListener('click',()=>{
+  const t=accText.textContent; if(!t){toast('Nothing to copy','info');return;}
+  navigator.clipboard.writeText(t).then(()=>toast('Copied!','ok')).catch(()=>toast('Copy failed','err'));
+});
+
+// Keyboard
+document.addEventListener('keydown',e=>{
+  if(e.target!==document.body)return;
+  if(e.code==='Space'){e.preventDefault();addCurrentSign();}
+  if(e.code==='Backspace'){e.preventDefault();const t=accText.textContent;if(t.length>0){accText.textContent=t.slice(0,-1);updateChips();}}
+});
+
+// ── Word prediction ───────────────────────────────────────────
+const WORDS = "the be to of and a in that have it for not on with he as you do at this his by from they we say her she or an will my one all would there their what so up out if about who get which go me when make can like time no just him know take people into year your good some could them see other than then now look only come its over think also back after use two how our work first well way even new want because any these give day most us hello help here hand sign language spell word letter read write show learn yes no thank please sorry happy sad eat drink go stop start open close left right hello goodbye morning night today name home school family friend".split(' ').filter((v,i,a)=>a.indexOf(v)===i);
+
+function updateChips() {
+  const text   = accText.textContent||'';
+  const parts  = text.trimEnd().split(' ');
+  const prefix = parts[parts.length-1].replace(/[^A-Za-z]/g,'');
+  pfx.textContent = prefix ? prefix+'…' : '';
+  if (!prefix) { chips.innerHTML='<span style="font-size:11px;color:var(--muted);font-style:italic">Sign letters to see suggestions…</span>'; return; }
+  const p = prefix.toLowerCase();
+  const matches = WORDS.filter(w=>w.startsWith(p)).sort((a,b)=>a.length-b.length).slice(0,6);
+  if (!matches.length) { chips.innerHTML='<span style="font-size:11px;color:var(--muted);font-style:italic">No matches</span>'; return; }
+  chips.innerHTML='';
+  matches.forEach((w,i)=>{
+    const b=document.createElement('button');
+    b.className='chip '+(i===0?'best':'alt');
+    b.textContent=w;
+    b.addEventListener('click',()=>{
+      const t=accText.textContent||'';
+      const ls=t.lastIndexOf(' ');
+      accText.textContent=(ls>=0?t.slice(0,ls+1):'')+w;
+      flash(); updateChips(); toast('Word: '+w,'ok');
+    });
+    chips.appendChild(b);
+  });
+}
+
+// ── Top-3 bars ────────────────────────────────────────────────
+function renderTop3(items) {
+  top3El.innerHTML='';
+  items.forEach(({label,prob})=>{
+    top3El.insertAdjacentHTML('beforeend',`
+      <div class="bar-row">
+        <span class="bar-lbl" style="color:var(--text)">${label}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${prob}%"></div></div>
+        <span class="bar-pct">${prob}%</span>
+      </div>`);
+  });
+}
+
+// ── Load model ────────────────────────────────────────────────
+modelSel.addEventListener('change',()=>{ loadBtn.disabled=!modelSel.value; });
+
+loadBtn.addEventListener('click', async()=>{
+  const name=modelSel.value; if(!name)return;
+  loadBtn.disabled=true; loadBtn.classList.add('busy');
+  setStatus('loading','Loading model…');
+  try{
+    const r=await fetch('/api/load_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model_name:name})});
+    const d=await r.json();
+    if(d.success){
+      modelLoaded=true; modelType=d.model_type||'';
+      setStatus('ready','✓ '+name);
+      setMsg('✓ Loaded: '+name,'ok');
+      toast('Model loaded: '+d.model_type,'ok');
+    } else { setMsg(d.error,'err'); toast(d.error,'err'); setStatus('ready','Load failed'); }
+  }catch(e){ setMsg(e.message,'err'); toast(e.message,'err'); }
+  finally{ loadBtn.disabled=false; loadBtn.classList.remove('busy'); }
+});
+
+zoneTog.addEventListener('change',()=>{
+  zoneEnabled=zoneTog.checked; resetZone();
+  toast(zoneEnabled?'Zone enabled':'Zone disabled','info');
+});
+
+// ── Helpers ───────────────────────────────────────────────────
+function setStatus(state, txt){
+  statusDot.className=state; statusTxt.textContent=txt;
+}
+function setMsg(txt,cls=''){loadMsg.textContent=txt;loadMsg.className=cls;}
+
+function toast(msg,type='info'){
+  const el=document.createElement('div');
+  el.className='toast '+type;
+  const icons={ok:'✓',err:'✕',info:'ℹ'};
+  el.innerHTML='<span>'+(icons[type]||'ℹ')+'</span><span>'+msg+'</span>';
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>el.remove(),3000);
+}
+
+// Preload: mark missing models
+fetch('/api/models').then(r=>r.json()).then(models=>{
+  Array.from(modelSel.options).forEach(opt=>{
+    if(!opt.value)return;
+    const m=models.find(x=>x.name===opt.value);
+    if(m&&!m.exists){opt.text+=' (not found)';opt.style.color='#ef4444';}
+  });
+}).catch(()=>{});
+</script>
+</body>
+</html>

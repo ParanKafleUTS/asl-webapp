@@ -1,0 +1,15 @@
+## ASL Recognition Web App - Python Dependencies
+## Install with:  pip install -r requirements.txt
+
+flask>=3.0.0
+flask-socketio>=5.3.6
+eventlet>=0.35.2          # async backend for flask-socketio
+huggingface_hub
+pillow
+# tensorflow>=2.13.0        # or tensorflow-cpu if no GPU
+# mediapipe>=0.10.9
+# opencv-python>=4.8.0
+# numpy>=1.24.0
+
+# Optional: install separately if tensorflow gives issues on Windows
+# keras>=3.0.0

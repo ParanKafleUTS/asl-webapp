@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASL Sign Recognition</title>
+
+  <!-- Socket.IO -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+
+  <style>
+    /* ── Reset & custom properties ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep:   #090c12;
+      --bg-panel:  #0f1520;
+      --bg-card:   #141c2e;
+      --accent:    #00e5ff;
+      --accent2:   #7c3aed;
+      --green:     #10b981;
+      --red:       #ef4444;
+      --amber:     #f59e0b;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --border:    rgba(255,255,255,0.07);
+      --radius:    14px;
+      --font-ui:   'DM Sans', 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg-deep);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Background grid effect ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Header ── */
+    header {
+      position: relative; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 32px;
+      background: rgba(9,12,18,0.9);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+    }
+    .logo {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .logo-icon {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+    .logo h1 {
+      font-size: 18px; font-weight: 700; letter-spacing: -0.3px;
+      background: linear-gradient(90deg, var(--accent), #a78bfa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .logo span { font-size: 11px; color: var(--muted); display: block; margin-top: 1px; }
+
+    #conn-badge {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 12px; font-weight: 500;
+      padding: 5px 12px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+    }
+    #conn-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+    #conn-dot.connected    { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    #conn-dot.disconnected { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+
+    /* ── Main layout ── */
+    main {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      grid-template-rows: auto;
+      gap: 20px;
+      padding: 24px 32px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* ── Panel / card ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+    .card-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-title::before {
+      content: '';
+      display: inline-block;
+      width: 3px; height: 12px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    /* ── Left sidebar ── */
+    .sidebar {
+      display: flex; flex-direction: column; gap: 18px;
+    }
+
+    /* Model selector */
+    .model-select-wrap {
+      position: relative;
+    }
+    select {
+      width: 100%;
+      background: var(--bg-panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 11px 16px;
+      font-family: var(--font-ui);
+      font-size: 13px;
+      appearance: none;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    select:hover  { border-color: rgba(0,229,255,0.3); }
+    select:focus  { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,229,255,0.1); }
+    .select-arrow {
+      position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      pointer-events: none; color: var(--muted); font-size: 10px;
+    }
+
+    /* Model info badge */
+    #model-type-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-top: 10px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    #model-type-badge.visible { opacity: 1; }
+    #model-type-badge.crop     { background: rgba(16,185,129,0.15); color: #10b981; }
+    #model-type-badge.skeleton { background: rgba(124,58,237,0.15); color: #a78bfa; }
+    #model-type-badge.landmark { background: rgba(245,158,11,0.15); color: #fbbf24; }
+    #model-type-badge.raw      { background: rgba(0,229,255,0.10); color: var(--accent); }
+
+    /* Load button */
+    #load-btn {
+      width: 100%;
+      padding: 12px;
+      border: none; border-radius: 9px;
+      font-family: var(--font-ui);
+      font-size: 14px; font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(135deg, #0284c7, var(--accent2));
+      color: #fff;
+      letter-spacing: 0.3px;
+      transition: opacity 0.2s, transform 0.15s;
+      position: relative; overflow: hidden;
+    }
+    #load-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+    #load-btn:active:not(:disabled){ transform: translateY(0); }
+    #load-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    #load-btn .spinner {
+      display: none;
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 8px;
+    }
+    #load-btn.loading .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* FPS & stream controls */
+    .control-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px;
+    }
+    .control-label { font-size: 12px; color: var(--muted); }
+    .fps-display {
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--accent); min-width: 40px; text-align: right;
+    }
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* Toggle switch */
+    .toggle-wrap { display: flex; align-items: center; gap: 10px; }
+    .toggle { position: relative; display: inline-block; width: 40px; height: 22px; }
+    .toggle input { display: none; }
+    .slider {
+      position: absolute; inset: 0;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 2px; top: 2px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: 0.3s;
+    }
+    .toggle input:checked + .slider { background: rgba(0,229,255,0.2); border-color: var(--accent); }
+    .toggle input:checked + .slider::before { transform: translateX(18px); background: var(--accent); }
+
+    /* ── Confidence bars ── */
+    .top3-wrap { display: flex; flex-direction: column; gap: 8px; }
+    .bar-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+    .bar-label {
+      font-family: var(--font-mono); font-weight: 700;
+      width: 30px; text-align: center;
+      color: var(--text);
+    }
+    .bar-track {
+      flex: 1; height: 6px;
+      background: var(--bg-panel);
+      border-radius: 3px; overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 3px;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      transition: width 0.2s ease;
+    }
+    .bar-pct { width: 38px; text-align: right; color: var(--muted); font-size: 11px; }
+
+    /* ── Right: Camera + results ── */
+    .camera-zone { display: flex; flex-direction: column; gap: 18px; }
+
+    /* Video container */
+    .video-wrap {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      aspect-ratio: 4/3;
+    }
+    #video   { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #overlay {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    /* Overlay info panels */
+    .cam-badge {
+      position: absolute;
+      background: rgba(9,12,18,0.8);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 13px;
+    }
+    #live-label {
+      top: 14px; left: 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #live-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red);
+      animation: pulse-live 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse-live {
+      0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+      50%      { opacity: 0.7; box-shadow: 0 0 0 5px rgba(239,68,68,0); }
+    }
+    #fps-cam { top: 14px; right: 14px; font-family: var(--font-mono); font-size: 12px; }
+
+    /* Big sign display */
+    #sign-big {
+      position: absolute; bottom: 14px; left: 14px;
+      font-family: var(--font-mono); font-size: 68px; font-weight: 700;
+      color: var(--accent);
+      text-shadow: 0 0 30px rgba(0,229,255,0.6);
+      line-height: 1;
+      transition: all 0.12s ease;
+      opacity: 0;
+    }
+    #sign-big.visible { opacity: 1; }
+
+    #conf-pill {
+      position: absolute; bottom: 20px; right: 14px;
+      font-size: 13px; font-weight: 600;
+      padding: 5px 12px; border-radius: 20px;
+      background: rgba(0,229,255,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(0,229,255,0.3);
+      font-family: var(--font-mono);
+      opacity: 0; transition: opacity 0.15s;
+    }
+    #conf-pill.visible { opacity: 1; }
+
+    /* Hand-not-detected banner */
+    #no-hand-banner {
+      position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+      font-size: 12px; color: var(--amber);
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 20px; padding: 4px 14px;
+      white-space: nowrap;
+      display: none;
+    }
+
+    /* ── Results row ── */
+    .results-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+    /* ── Text accumulator ── */
+    .text-area-wrap {
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    #accumulated-text {
+      min-height: 90px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 14px 16px;
+      font-family: var(--font-mono);
+      font-size: 22px; font-weight: 700;
+      letter-spacing: 4px;
+      color: var(--text);
+      word-break: break-all;
+      line-height: 1.5;
+    }
+    #accumulated-text:empty::before {
+      content: 'Your text will appear here…';
+      color: var(--muted);
+      font-size: 14px; letter-spacing: 1px; font-weight: 400;
+    }
+
+    .action-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    button.btn {
+      padding: 9px 18px; border-radius: 8px; border: none;
+      font-family: var(--font-ui); font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent2), #4f46e5);
+      color: #fff;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); }
+
+    .btn-danger {
+      background: rgba(239,68,68,0.12);
+      color: #f87171;
+      border: 1px solid rgba(239,68,68,0.25);
+    }
+    .btn-danger:hover { background: rgba(239,68,68,0.2); }
+
+    /* Toast notifications */
+    #toast-area {
+      position: fixed; bottom: 28px; right: 28px;
+      display: flex; flex-direction: column-reverse; gap: 10px;
+      z-index: 9999;
+    }
+    .toast {
+      padding: 11px 18px; border-radius: 10px;
+      font-size: 13px; font-weight: 500;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+      animation: slide-in 0.3s ease;
+      display: flex; align-items: center; gap: 8px;
+    }
+    @keyframes slide-in {
+      from { transform: translateX(40px); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+    .toast.success { border-color: rgba(16,185,129,0.4); color: #10b981; }
+    .toast.error   { border-color: rgba(239,68,68,0.4);  color: #f87171; }
+    .toast.info    { border-color: rgba(0,229,255,0.3);  color: var(--accent); }
+
+    /* Status messages */
+    #status-msg {
+      font-size: 12px; color: var(--muted); text-align: center;
+      min-height: 16px; transition: color 0.2s;
+    }
+    #status-msg.ok   { color: var(--green); }
+    #status-msg.err  { color: var(--red); }
+    #status-msg.warn { color: var(--amber); }
+
+    /* Stability indicator */
+    #stability-bar-wrap {
+      display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted);
+    }
+    #stability-track {
+      flex: 1; height: 4px; background: var(--bg-panel); border-radius: 2px; overflow: hidden;
+    }
+    #stability-fill {
+      height: 100%; border-radius: 2px;
+      background: linear-gradient(90deg, var(--amber), var(--green));
+      transition: width 0.1s linear;
+      width: 0%;
+    }
+
+    /* ── Hover-to-add ring ── */
+    .sign-hover-wrap {
+      position: relative;
+      width: 88px; height: 88px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .sign-hover-wrap svg.ring {
+      position: absolute; inset: -8px;
+      width: calc(100% + 16px); height: calc(100% + 16px);
+      transform: rotate(-90deg);
+      pointer-events: none;
+    }
+    .ring-track { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 4; }
+    .ring-fill  {
+      fill: none; stroke: var(--accent); stroke-width: 4;
+      stroke-linecap: round;
+      stroke-dasharray: 0 1000;
+      transition: stroke 0.2s;
+    }
+    .sign-hover-wrap:hover .ring-fill { stroke: #00e5ff; }
+    #current-sign-box {
+      width: 100%; height: 100%;
+      border-radius: 12px;
+      background: var(--bg-panel); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono); font-size: 42px; font-weight: 700;
+      color: var(--accent);
+      transition: border-color 0.2s, background 0.2s;
+      user-select: none;
+    }
+    .sign-hover-wrap:hover #current-sign-box {
+      border-color: rgba(0,229,255,0.5);
+      background: rgba(0,229,255,0.05);
+    }
+    .hover-tip {
+      position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+      font-size: 10px; color: var(--muted); white-space: nowrap;
+      opacity: 0; transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .sign-hover-wrap:hover .hover-tip { opacity: 1; }
+    .sign-hover-wrap.adding #current-sign-box {
+      background: rgba(0,229,255,0.15);
+      border-color: var(--accent);
+    }
+
+    /* ── Word prediction ── */
+    .word-predict-wrap {
+      margin-top: 10px;
+    }
+    .word-predict-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 7px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .word-chips {
+      display: flex; flex-wrap: wrap; gap: 7px; min-height: 32px;
+    }
+    .word-chip {
+      padding: 5px 13px; border-radius: 20px;
+      font-size: 13px; font-weight: 600;
+      background: rgba(124,58,237,0.15);
+      border: 1px solid rgba(124,58,237,0.3);
+      color: #a78bfa;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.5px;
+    }
+    .word-chip:hover {
+      background: rgba(124,58,237,0.35);
+      border-color: rgba(124,58,237,0.7);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+    .word-chip.top { 
+      background: rgba(0,229,255,0.12);
+      border-color: rgba(0,229,255,0.3);
+      color: var(--accent);
+    }
+    .word-chip.top:hover {
+      background: rgba(0,229,255,0.25);
+    }
+    .no-suggestions {
+      font-size: 11px; color: var(--muted); font-style: italic;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 960px) {
+      main { grid-template-columns: 1fr; padding: 16px; }
+      .results-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🤟</div>
+    <div>
+      <h1>ASL Sign Recognition</h1>
+      <span>Real-time hand sign detection</span>
+    </div>
+  </div>
+  <div id="conn-badge">
+    <div id="conn-dot"></div>
+    <span id="conn-text">Connecting…</span>
+  </div>
+</header>
+
+<!-- ── Main ── -->
+<main>
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+
+    <!-- Model selector -->
+    <div class="card">
+      <div class="card-title">Model Configuration</div>
+
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:8px;">Select Model</label>
+      <div class="model-select-wrap">
+        <select id="model-select">
+          <option value="">— choose a model —</option>
+          {% for m in models %}
+          <option value="{{ m }}">{{ m }}</option>
+          {% endfor %}
+        </select>
+        <span class="select-arrow">▾</span>
+      </div>
+
+      <div id="model-type-badge">●&nbsp;<span id="mtype-text"></span></div>
+
+      <button id="load-btn" style="margin-top:14px;" disabled>
+        <span class="spinner"></span>
+        Load Model
+      </button>
+
+      <p id="status-msg" style="margin-top:10px;"></p>
+    </div>
+
+    <!-- Stream controls -->
+    <div class="card">
+      <div class="card-title">Stream Settings</div>
+
+      <div class="control-row" style="margin-bottom:14px;">
+        <span class="control-label">Target FPS</span>
+        <span class="fps-display" id="fps-val">10</span>
+        <input type="range" id="fps-slider" min="1" max="20" value="10" style="width:120px">
+      </div>
+
+      <div class="toggle-wrap" style="margin-bottom:14px;">
+        <label class="toggle">
+          <input type="checkbox" id="mirror-toggle" checked>
+          <span class="slider"></span>
+        </label>
+        <span class="control-label">Mirror video</span>
+      </div>
+
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="auto-add-toggle">
+          <span class="slider"></span>
+        </label>
+        <span class="control-label">Auto-add (stable 0.5 s)</span>
+      </div>
+    </div>
+
+    <!-- Live confidence bars -->
+    <div class="card">
+      <div class="card-title">Top Predictions</div>
+      <div class="top3-wrap" id="top3-wrap">
+        <div style="font-size:12px;color:var(--muted);">Load a model to see predictions</div>
+      </div>
+    </div>
+
+    <!-- Debug: what the model actually sees -->
+    <div class="card">
+      <div class="card-title">Model Input Preview</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
+        What the model receives after preprocessing
+      </div>
+      <canvas id="debug-canvas"
+        style="width:100%;border-radius:8px;border:1px solid var(--border);
+               background:#000;image-rendering:pixelated;">
+      </canvas>
+      <div id="debug-label" style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center;">
+        —
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+      <div class="card-title">Session Stats</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">FRAMES SENT</div>
+          <div id="stat-frames" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text);">0</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">SIGNS ADDED</div>
+          <div id="stat-signs" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--accent);">0</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">AVG CONFIDENCE</div>
+          <div id="stat-conf" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text);">—</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">LIVE FPS</div>
+          <div id="stat-fps" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--text);">0</div>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Camera zone ── -->
+  <section class="camera-zone">
+
+    <!-- Video -->
+    <div class="video-wrap">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+
+      <div class="cam-badge" id="live-label">
+        <div id="live-dot"></div>
+        <span>LIVE</span>
+      </div>
+      <div class="cam-badge" id="fps-cam">0 fps</div>
+
+      <div id="sign-big"></div>
+      <div id="conf-pill"></div>
+      <div id="no-hand-banner">👋 No hand detected</div>
+    </div>
+
+    <!-- Results row -->
+    <div class="results-row">
+
+      <!-- Current sign -->
+      <div class="card">
+        <div class="card-title">Current Sign</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;">
+          <div class="sign-hover-wrap" id="sign-hover-wrap">
+            <div id="current-sign-box">?</div>
+            <svg class="ring" viewBox="0 0 104 104">
+              <circle class="ring-track" cx="52" cy="52" r="48"/>
+              <circle class="ring-fill" id="ring-fill" cx="52" cy="52" r="48"/>
+            </svg>
+            <div class="hover-tip">hover to add</div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">CONFIDENCE</div>
+            <div id="conf-big" style="font-family:var(--font-mono);font-size:28px;font-weight:700;">—</div>
+            <div id="stability-bar-wrap" style="margin-top:8px;">
+              <span>Stability</span>
+              <div id="stability-track">
+                <div id="stability-fill"></div>
+              </div>
+              <span id="stability-pct">0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="action-btns">
+          <button class="btn btn-primary" id="add-btn" disabled>＋ Add Sign</button>
+          <button class="btn btn-secondary" id="space-btn">Space</button>
+          <button class="btn btn-secondary" id="backspace-btn">⌫ Delete</button>
+        </div>
+      </div>
+
+      <!-- Accumulated text -->
+      <div class="card">
+        <div class="card-title">Accumulated Text</div>
+        <div class="text-area-wrap">
+          <div id="accumulated-text"></div>
+
+          <!-- Word prediction -->
+          <div class="word-predict-wrap">
+            <div class="word-predict-label">
+              <span>💡</span>
+              <span>Word suggestions</span>
+              <span id="predict-prefix" style="color:var(--accent);font-family:var(--font-mono);font-weight:700;"></span>
+            </div>
+            <div class="word-chips" id="word-chips">
+              <span class="no-suggestions">Sign letters to see suggestions…</span>
+            </div>
+          </div>
+
+          <div class="action-btns" style="margin-top:8px;">
+            <button class="btn btn-secondary" id="copy-btn">📋 Copy</button>
+            <button class="btn btn-danger" id="clear-btn">✕ Clear</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </section>
+</main>
+
+<!-- Toast area -->
+<div id="toast-area"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════
+   ASL Recognition Frontend
+   Features: hover-to-add, word prediction, stability bar
+   ══════════════════════════════════════════════════════════ */
+
+// ── State ──
+let socket        = null;
+let videoStream   = null;
+let sendInterval  = null;
+let modelLoaded   = false;
+let currentLabel  = null;
+let currentConf   = 0;
+let frameCount    = 0;
+let signCount     = 0;
+let confHistory   = [];
+let fpsTimestamps = [];
+
+// Stability tracking
+let stableLabel   = null;
+let stableStart   = 0;
+let stabilitySent = false;
+const STABLE_MS   = 500;
+
+// Hover-to-add tracking
+let hoverTimer    = null;
+let hoverStart    = 0;
+let hoverAnimId   = null;
+const HOVER_MS    = 1200;   // 1.2 s to add letter by hovering
+
+// Canvas for frame capture
+const captureCanvas = document.createElement('canvas');
+const captureCtx    = captureCanvas.getContext('2d');
+
+// Overlay canvas
+const overlayCanvas = document.getElementById('overlay');
+const overlayCtx    = overlayCanvas.getContext('2d');
+
+// ── DOM refs ──
+const video          = document.getElementById('video');
+const connDot        = document.getElementById('conn-dot');
+const connText       = document.getElementById('conn-text');
+const modelSelect    = document.getElementById('model-select');
+const loadBtn        = document.getElementById('load-btn');
+const statusMsg      = document.getElementById('status-msg');
+const fpsSlider      = document.getElementById('fps-slider');
+const fpsVal         = document.getElementById('fps-val');
+const mirrorToggle   = document.getElementById('mirror-toggle');
+const autoAddToggle  = document.getElementById('auto-add-toggle');
+const signBig        = document.getElementById('sign-big');
+const confPill       = document.getElementById('conf-pill');
+const noHandBanner   = document.getElementById('no-hand-banner');
+const currentSignBox = document.getElementById('current-sign-box');
+const signHoverWrap  = document.getElementById('sign-hover-wrap');
+const ringFill       = document.getElementById('ring-fill');
+const confBig        = document.getElementById('conf-big');
+const stabilityFill  = document.getElementById('stability-fill');
+const stabilityPct   = document.getElementById('stability-pct');
+const addBtn         = document.getElementById('add-btn');
+const spaceBtn       = document.getElementById('space-btn');
+const backspaceBtn   = document.getElementById('backspace-btn');
+const accText        = document.getElementById('accumulated-text');
+const wordChips      = document.getElementById('word-chips');
+const predictPrefix  = document.getElementById('predict-prefix');
+const copyBtn        = document.getElementById('copy-btn');
+const clearBtn       = document.getElementById('clear-btn');
+const top3Wrap       = document.getElementById('top3-wrap');
+const fpsCam         = document.getElementById('fps-cam');
+const statFrames     = document.getElementById('stat-frames');
+const statSigns      = document.getElementById('stat-signs');
+const statConf       = document.getElementById('stat-conf');
+const statFps        = document.getElementById('stat-fps');
+const mtypeBadge     = document.getElementById('model-type-badge');
+const mtypeText      = document.getElementById('mtype-text');
+
+// ── Ring geometry ──
+const RING_R          = 48;
+const RING_CIRC       = 2 * Math.PI * RING_R;
+
+function setRing(pct) {
+  // pct: 0–100
+  const dash = (pct / 100) * RING_CIRC;
+  ringFill.style.strokeDasharray = `${dash} ${RING_CIRC}`;
+  if (pct >= 100) {
+    ringFill.style.stroke = 'var(--green)';
+  } else if (pct > 0) {
+    ringFill.style.stroke = 'var(--accent)';
+  } else {
+    ringFill.style.stroke = 'var(--accent)';
+    ringFill.style.strokeDasharray = `0 ${RING_CIRC}`;
+  }
+}
+
+// ── Hover-to-add ──
+function startHover() {
+  if (!currentLabel) return;
+  hoverStart = performance.now();
+  cancelAnimationFrame(hoverAnimId);
+  function tick() {
+    const elapsed = performance.now() - hoverStart;
+    const pct     = Math.min(100, (elapsed / HOVER_MS) * 100);
+    setRing(pct);
+    if (pct < 100) {
+      hoverAnimId = requestAnimationFrame(tick);
+    } else {
+      // Completed — add the letter
+      signHoverWrap.classList.add('adding');
+      addCurrentSign();
+      setTimeout(() => {
+        signHoverWrap.classList.remove('adding');
+        setRing(0);
+      }, 350);
+    }
+  }
+  hoverAnimId = requestAnimationFrame(tick);
+}
+
+function stopHover() {
+  cancelAnimationFrame(hoverAnimId);
+  setRing(0);
+}
+
+signHoverWrap.addEventListener('mouseenter', startHover);
+signHoverWrap.addEventListener('mouseleave', stopHover);
+
+// Touch support for mobile
+signHoverWrap.addEventListener('touchstart', (e) => { e.preventDefault(); startHover(); });
+signHoverWrap.addEventListener('touchend',   (e) => { e.preventDefault(); stopHover(); });
+
+// ══════════════════════════════════════════════════════════
+// Word Prediction
+// ══════════════════════════════════════════════════════════
+
+// Common English words sorted by frequency
+const WORD_LIST = ("the be to of and a in that have it for not on with he as you do at this his by from they we say her she or an will my one all would there their what so up out if about who get which go me when make can like time no just him know take people into year your good some could them see other than then now look only come its over think also back after use two how our work first well way even new want because any these give day most us about above able act add age ago agree ahead air almost already also although always among and another answer any apart appear apply approach area around ask away back base become before begin behind being believe benefit best better between beyond big bring build but call came can case cause certain change check clear close come common concern continue could count country create cut deal decide deep define depend describe despite detail did different difficult do down early enough even ever every example exist explain eye fact fall far feel few find first follow food form found four free full give go good great group hand happen hard have head hear help high history home however human idea if important increase interest into involve issue its itself just keep kind know large last later lead less let life light like line little live long look low make man may mean might mind more most move much must name need never new next non nothing now number of often one only open order other our out over own part past people person place play point policy point possible power present problem produce provide question reach real reason recent remain report require result return right role say school seem send set several show side small social something sometimes sort speak special start state still stop study such support sure system take tell than their them then there these they think this those three through time to today together too took toward try turn under until up use value want was way well where which while who whole why wide will within without work world would write year yes yet you").split(" ");
+
+// Build a simple prefix-trie index for fast lookup
+const TRIE = {};
+WORD_LIST.forEach(w => {
+  let node = TRIE;
+  for (const ch of w.toUpperCase()) {
+    if (!node[ch]) node[ch] = { _words: [] };
+    node[ch]._words.push(w);
+    node = node[ch];
+  }
+});
+
+function getWordSuggestions(prefix, maxResults = 6) {
+  if (!prefix || prefix.length === 0) return [];
+  prefix = prefix.toUpperCase();
+  let node = TRIE;
+  for (const ch of prefix) {
+    if (!node[ch]) return [];
+    node = node[ch];
+  }
+  // Collect all words under this node, deduplicate, limit
+  const seen = new Set();
+  const results = [];
+  const stack = [node];
+  while (stack.length && results.length < maxResults) {
+    const n = stack.pop();
+    (n._words || []).forEach(w => {
+      if (!seen.has(w) && w.toUpperCase().startsWith(prefix)) {
+        seen.add(w);
+        results.push(w);
+      }
+    });
+    Object.keys(n).filter(k => k !== '_words').forEach(k => stack.push(n[k]));
+  }
+  // Sort: exact prefix match first, then by length
+  results.sort((a, b) => {
+    const aEx = a.toUpperCase() === prefix ? -1 : 0;
+    const bEx = b.toUpperCase() === prefix ? -1 : 0;
+    if (aEx !== bEx) return aEx - bEx;
+    return a.length - b.length;
+  });
+  return results.slice(0, maxResults);
+}
+
+function getCurrentPrefix() {
+  // The "current word" = letters since the last space in accText
+  const text = accText.textContent || '';
+  const parts = text.split(' ');
+  return parts[parts.length - 1].replace(/[^A-Za-z]/g, '');
+}
+
+function updateWordPredictions() {
+  const prefix = getCurrentPrefix();
+
+  if (!prefix || prefix.length === 0) {
+    wordChips.innerHTML = '<span class="no-suggestions">Sign letters to see suggestions…</span>';
+    predictPrefix.textContent = '';
+    return;
+  }
+
+  const suggestions = getWordSuggestions(prefix);
+  predictPrefix.textContent = prefix + '…';
+
+  if (suggestions.length === 0) {
+    wordChips.innerHTML = '<span class="no-suggestions">No matches found</span>';
+    return;
+  }
+
+  wordChips.innerHTML = '';
+  suggestions.forEach((word, i) => {
+    const chip = document.createElement('button');
+    chip.className = 'word-chip' + (i === 0 ? ' top' : '');
+    chip.textContent = word;
+    chip.title = `Replace "${prefix}" with "${word}"`;
+    chip.addEventListener('click', () => applyWord(word, prefix));
+    wordChips.appendChild(chip);
+  });
+}
+
+function applyWord(word, prefix) {
+  // Replace the last partial word (prefix) with the chosen word
+  const text    = accText.textContent || '';
+  const lastSpc = text.lastIndexOf(' ');
+  const base    = lastSpc >= 0 ? text.slice(0, lastSpc + 1) : '';
+  accText.textContent = base + word;
+  flashAdd();
+  updateWordPredictions();
+  toast(`Word applied: ${word}`, 'success');
+}
+
+// ── Mirror video ──
+function updateMirror() {
+  video.style.transform = mirrorToggle.checked ? 'scaleX(-1)' : '';
+}
+mirrorToggle.addEventListener('change', updateMirror);
+updateMirror();
+
+// ── FPS slider ──
+fpsSlider.addEventListener('input', () => {
+  fpsVal.textContent = fpsSlider.value;
+  restartSending();
+});
+
+// ── Model type badge ──
+const typeColors = { crop:'crop', skeleton:'skeleton', landmark:'landmark', raw:'raw' };
+function showTypeBadge(type) {
+  mtypeText.textContent = type.toUpperCase() + ' input';
+  mtypeBadge.className = 'visible ' + (typeColors[type] || 'raw');
+}
+
+// ── Model selector enable ──
+modelSelect.addEventListener('change', () => {
+  loadBtn.disabled = !modelSelect.value;
+});
+
+// ── Socket.IO ──
+function initSocket() {
+  socket = io({ transports: ['websocket'] });
+
+  socket.on('connect', () => {
+    connDot.className    = 'connected';
+    connText.textContent = 'Connected';
+    toast('Server connected', 'success');
+  });
+
+  socket.on('disconnect', () => {
+    connDot.className    = 'disconnected';
+    connText.textContent = 'Disconnected';
+    toast('Server disconnected', 'error');
+    stopSending();
+  });
+
+  socket.on('status', (data) => {
+    if (data.model_loaded) {
+      modelLoaded = true;
+      setStatus(`Model active: ${data.model_name}`, 'ok');
+      startSending();
+    }
+  });
+
+  socket.on('prediction', (data) => {
+    if (data.error) { setStatus(data.error, 'err'); return; }
+    handlePrediction(data);
+  });
+}
+
+// ── Webcam ──
+async function startCamera() {
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+      audio: false
+    });
+    video.srcObject = videoStream;
+    video.onloadedmetadata = () => {
+      overlayCanvas.width  = video.videoWidth;
+      overlayCanvas.height = video.videoHeight;
+      captureCanvas.width  = video.videoWidth;
+      captureCanvas.height = video.videoHeight;
+    };
+  } catch (e) {
+    toast('Camera access denied: ' + e.message, 'error');
+  }
+}
+
+// ── Frame sending ──
+function startSending() {
+  stopSending();
+  const fps = parseInt(fpsSlider.value, 10);
+  sendInterval = setInterval(sendFrame, 1000 / fps);
+}
+function stopSending() {
+  if (sendInterval) { clearInterval(sendInterval); sendInterval = null; }
+}
+function restartSending() { if (modelLoaded) startSending(); }
+
+function sendFrame() {
+  if (!socket || !socket.connected || !modelLoaded) return;
+  if (!video.videoWidth) return;
+
+  captureCtx.drawImage(video, 0, 0);
+  const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.85);
+  socket.emit('frame', { image: dataUrl });
+
+  // Debug canvas every 10 frames
+  if (frameCount % 10 === 0 && modelLoaded) {
+    fetch('/api/debug_frame', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl })
+    }).then(r => r.json()).then(d => {
+      const dc  = document.getElementById('debug-canvas');
+      const lbl = document.getElementById('debug-label');
+      if (d && d.image) {
+        const img = new Image();
+        img.onload = () => {
+          dc.width  = img.naturalWidth;
+          dc.height = img.naturalHeight;
+          dc.getContext('2d').drawImage(img, 0, 0);
+        };
+        img.src = d.image;
+        lbl.textContent = currentLabel ? `Model sees → predicts "${currentLabel}"` : '—';
+      } else if (lbl) {
+        lbl.textContent = 'No hand detected';
+      }
+    }).catch(() => {});
+  }
+
+  frameCount++;
+  statFrames.textContent = frameCount;
+
+  const now = Date.now();
+  fpsTimestamps.push(now);
+  fpsTimestamps = fpsTimestamps.filter(t => now - t < 1000);
+  const liveFps = fpsTimestamps.length;
+  fpsCam.textContent  = liveFps + ' fps';
+  statFps.textContent = liveFps;
+}
+
+// ── Prediction handler ──
+function handlePrediction(data) {
+  if (!data.hand_detected || !data.label) {
+    noHandBanner.style.display = 'block';
+    signBig.className          = '';
+    confPill.className         = '';
+    currentSignBox.textContent = '?';
+    confBig.textContent        = '—';
+    updateStability(null);
+    // Stop hover ring if hand lost
+    stopHover();
+    return;
+  }
+
+  noHandBanner.style.display = 'none';
+  const { label, confidence, all_top3 } = data;
+
+  // If label changed mid-hover, restart hover
+  if (label !== currentLabel) stopHover();
+
+  currentLabel = label;
+  currentConf  = confidence;
+
+  signBig.textContent  = label;
+  signBig.className    = 'visible';
+  confPill.textContent = confidence + '%';
+  confPill.className   = 'visible';
+
+  currentSignBox.textContent = label;
+  confBig.textContent = confidence + '%';
+  confBig.style.color = confidence > 80 ? 'var(--green)' : confidence > 50 ? 'var(--amber)' : 'var(--text)';
+
+  if (all_top3) renderTop3(all_top3);
+
+  confHistory.push(confidence);
+  if (confHistory.length > 100) confHistory.shift();
+  const avg = confHistory.reduce((a,b)=>a+b,0) / confHistory.length;
+  statConf.textContent = avg.toFixed(0) + '%';
+
+  updateStability(label);
+  addBtn.disabled = false;
+}
+
+// ── Stability ──
+function updateStability(label) {
+  if (label === null) {
+    stableLabel = null; stableStart = 0; stabilitySent = false;
+    setStabilityBar(0);
+    return;
+  }
+  if (label !== stableLabel) {
+    stableLabel   = label;
+    stableStart   = Date.now();
+    stabilitySent = false;
+  }
+  const elapsed = Date.now() - stableStart;
+  const pct     = Math.min(100, (elapsed / STABLE_MS) * 100);
+  setStabilityBar(pct);
+
+  if (pct >= 100 && !stabilitySent && autoAddToggle.checked) {
+    stabilitySent = true;
+    addCurrentSign();
+  }
+}
+
+function setStabilityBar(pct) {
+  stabilityFill.style.width = pct + '%';
+  stabilityPct.textContent  = Math.round(pct) + '%';
+}
+
+// ── Top-3 bars ──
+function renderTop3(items) {
+  top3Wrap.innerHTML = '';
+  items.forEach(({ label, prob }) => {
+    top3Wrap.insertAdjacentHTML('beforeend', `
+      <div class="bar-row">
+        <span class="bar-label">${label}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${prob}%"></div></div>
+        <span class="bar-pct">${prob}%</span>
+      </div>
+    `);
+  });
+}
+
+// ── Text accumulator ──
+function addCurrentSign() {
+  if (!currentLabel) return;
+  // Skip non-letter labels from being added to text
+  if (currentLabel === 'nothing') return;
+  if (currentLabel === 'del') {
+    const t = accText.textContent;
+    if (t.length > 0) accText.textContent = t.slice(0, -1);
+    updateWordPredictions();
+    return;
+  }
+  if (currentLabel === 'space') {
+    accText.textContent += ' ';
+    updateWordPredictions();
+    return;
+  }
+  accText.textContent += currentLabel;
+  signCount++;
+  statSigns.textContent = signCount;
+  flashAdd();
+  updateWordPredictions();
+}
+
+function flashAdd() {
+  accText.style.borderColor = 'var(--accent)';
+  accText.style.boxShadow   = '0 0 12px rgba(0,229,255,0.2)';
+  setTimeout(() => {
+    accText.style.borderColor = '';
+    accText.style.boxShadow   = '';
+  }, 300);
+}
+
+addBtn.addEventListener('click', addCurrentSign);
+
+spaceBtn.addEventListener('click', () => {
+  accText.textContent += ' ';
+  updateWordPredictions();
+});
+
+backspaceBtn.addEventListener('click', () => {
+  const t = accText.textContent;
+  if (t.length > 0) {
+    accText.textContent = t.slice(0, -1);
+    updateWordPredictions();
+  }
+});
+
+clearBtn.addEventListener('click', () => {
+  accText.textContent = '';
+  wordChips.innerHTML = '<span class="no-suggestions">Sign letters to see suggestions…</span>';
+  predictPrefix.textContent = '';
+  toast('Text cleared', 'info');
+});
+
+copyBtn.addEventListener('click', () => {
+  const text = accText.textContent;
+  if (!text) { toast('Nothing to copy', 'info'); return; }
+  navigator.clipboard.writeText(text)
+    .then(() => toast('Copied to clipboard!', 'success'))
+    .catch(() => {
+      const el = document.createElement('textarea');
+      el.value = text; document.body.appendChild(el);
+      el.select(); document.execCommand('copy');
+      document.body.removeChild(el);
+      toast('Copied!', 'success');
+    });
+});
+
+// ── Load model ──
+loadBtn.addEventListener('click', async () => {
+  const modelName = modelSelect.value;
+  if (!modelName) return;
+
+  loadBtn.disabled = true;
+  loadBtn.classList.add('loading');
+  loadBtn.querySelector('.spinner').style.display = 'inline-block';
+  setStatus('Loading model… this may take a moment', 'warn');
+
+  try {
+    const res  = await fetch('/api/load_model', {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body   : JSON.stringify({ model_name: modelName }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      modelLoaded = true;
+      setStatus(`✓ Loaded: ${modelName}`, 'ok');
+      showTypeBadge(data.model_type);
+      toast(`Model loaded: ${data.model_type} pipeline`, 'success');
+      startSending();
+    } else {
+      setStatus('Error: ' + data.error, 'err');
+      toast(data.error, 'error');
+    }
+  } catch (e) {
+    setStatus('Network error: ' + e.message, 'err');
+    toast(e.message, 'error');
+  } finally {
+    loadBtn.disabled = false;
+    loadBtn.classList.remove('loading');
+  }
+});
+
+// ── Helpers ──
+function setStatus(msg, type='') {
+  statusMsg.textContent = msg;
+  statusMsg.className   = type;
+}
+
+function toast(msg, type='info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  const icon = { success:'✓', error:'✕', info:'ℹ' }[type] || 'ℹ';
+  el.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+  document.getElementById('toast-area').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault(); addCurrentSign();
+  }
+  if (e.code === 'Backspace' && e.target === document.body) {
+    e.preventDefault();
+    const t = accText.textContent;
+    if (t.length > 0) { accText.textContent = t.slice(0,-1); updateWordPredictions(); }
+  }
+});
+
+// ── Init ──
+(async function init() {
+  setRing(0);
+  await startCamera();
+  initSocket();
+
+  fetch('/api/models').then(r => r.json()).then(models => {
+    Array.from(modelSelect.options).forEach(opt => {
+      if (!opt.value) return;
+      const m = models.find(x => x.name === opt.value);
+      if (m && !m.exists) {
+        opt.text += ' (file not found)';
+        opt.style.color = '#ef4444';
+      }
+    });
+  }).catch(() => {});
+})();
+</script></html>
