@@ -26,6 +26,12 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install uv (required by Vercel for Python)
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Add uv to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
